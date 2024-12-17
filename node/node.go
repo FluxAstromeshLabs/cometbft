@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/FluxAstromeshLabs/cometbft-plugin/hotstuff"
 	"net"
 	"net/http"
 	"os"
@@ -404,6 +405,14 @@ func NewNodeWithContext(ctx context.Context,
 		config, state, blockExec, blockStore, mempool, evidencePool,
 		privValidator, csMetrics, stateSync || blockSync, eventBus, consensusLogger, offlineStateSyncHeight,
 	)
+
+	// make hotstuff consensus reactor
+	hotstuffState := hotstuff.NewState(config.Consensus, state, blockExec, blockStore, mempool, evidencePool)
+	hotstuffReactor := hotstuff.NewReactor(hotstuffState, stateSync || blockSync)
+	hotstuffReactor.SetLogger(consensusLogger)
+	hotstuffReactor.SetEventBus(eventBus)
+	customReactorOpt := CustomReactors(map[string]p2p.Reactor{"HOTSTUFF_TEST": hotstuffReactor})
+	options = append(options, customReactorOpt)
 
 	err = stateStore.SetOfflineStateSyncHeight(0)
 	if err != nil {
