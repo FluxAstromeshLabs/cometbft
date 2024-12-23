@@ -27,6 +27,11 @@ const (
 	VoteChannel        = byte(0x22)
 	VoteSetBitsChannel = byte(0x23)
 
+	FooChannel  = byte(0x80)
+	BarChannel  = byte(0x81)
+	PingChannel = byte(0x82)
+	PongChannel = byte(0x83)
+
 	maxMsgSize = 1048576 // 1MB; NOTE/TODO: keep in sync with types.PartSet sizes.
 
 	blocksToContributeToBecomeGoodPeer = 10000

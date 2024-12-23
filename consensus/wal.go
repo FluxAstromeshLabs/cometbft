@@ -47,7 +47,7 @@ type WALMessage interface{}
 
 func init() {
 	cmtjson.RegisterType(msgInfo{}, "tendermint/wal/MsgInfo")
-	cmtjson.RegisterType(timeoutInfo{}, "tendermint/wal/TimeoutInfo")
+	cmtjson.RegisterType(TimeoutInfo{}, "tendermint/wal/TimeoutInfo")
 	cmtjson.RegisterType(EndHeightMessage{}, "tendermint/wal/EndHeightMessage")
 }
 
@@ -354,7 +354,7 @@ func (e DataCorruptionError) Cause() error {
 // It will also compare the checksums and make sure data size is equal to the
 // length from the header. If that is not the case, error will be returned.
 type WALDecoder struct {
-	rd io.Reader
+	Rd io.Reader
 }
 
 // NewWALDecoder returns a new decoder that reads from rd.
@@ -366,7 +366,7 @@ func NewWALDecoder(rd io.Reader) *WALDecoder {
 func (dec *WALDecoder) Decode() (*TimedWALMessage, error) {
 	b := make([]byte, 4)
 
-	_, err := dec.rd.Read(b)
+	_, err := dec.Rd.Read(b)
 	if errors.Is(err, io.EOF) {
 		return nil, err
 	}
@@ -376,7 +376,7 @@ func (dec *WALDecoder) Decode() (*TimedWALMessage, error) {
 	crc := binary.BigEndian.Uint32(b)
 
 	b = make([]byte, 4)
-	_, err = dec.rd.Read(b)
+	_, err = dec.Rd.Read(b)
 	if err != nil {
 		return nil, DataCorruptionError{fmt.Errorf("failed to read length: %v", err)}
 	}
@@ -390,7 +390,7 @@ func (dec *WALDecoder) Decode() (*TimedWALMessage, error) {
 	}
 
 	data := make([]byte, length)
-	n, err := dec.rd.Read(data)
+	n, err := dec.Rd.Read(data)
 	if err != nil {
 		return nil, DataCorruptionError{fmt.Errorf("failed to read data: %v (read: %d, wanted: %d)", err, n, length)}
 	}
@@ -419,16 +419,16 @@ func (dec *WALDecoder) Decode() (*TimedWALMessage, error) {
 	return tMsgWal, err
 }
 
-type nilWAL struct{}
+type NilWAL struct{}
 
-var _ WAL = nilWAL{}
+var _ WAL = NilWAL{}
 
-func (nilWAL) Write(WALMessage) error     { return nil }
-func (nilWAL) WriteSync(WALMessage) error { return nil }
-func (nilWAL) FlushAndSync() error        { return nil }
-func (nilWAL) SearchForEndHeight(int64, *WALSearchOptions) (rd io.ReadCloser, found bool, err error) {
+func (NilWAL) Write(WALMessage) error     { return nil }
+func (NilWAL) WriteSync(WALMessage) error { return nil }
+func (NilWAL) FlushAndSync() error        { return nil }
+func (NilWAL) SearchForEndHeight(int64, *WALSearchOptions) (rd io.ReadCloser, found bool, err error) {
 	return nil, false, nil
 }
-func (nilWAL) Start() error { return nil }
-func (nilWAL) Stop() error  { return nil }
-func (nilWAL) Wait()        {}
+func (NilWAL) Start() error { return nil }
+func (NilWAL) Stop() error  { return nil }
+func (NilWAL) Wait()        {}

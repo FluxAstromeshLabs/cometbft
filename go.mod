@@ -44,7 +44,6 @@ require (
 )
 
 require (
-	github.com/FluxAstromeshLabs/cometbft-plugin v0.0.0-00010101000000-000000000000
 	github.com/Masterminds/semver/v3 v3.2.0
 	github.com/btcsuite/btcd/btcec/v2 v2.3.2
 	github.com/btcsuite/btcd/btcutil v1.1.3
@@ -307,5 +306,3 @@ require (
 	mvdan.cc/lint v0.0.0-20170908181259-adc824a0674b // indirect
 	mvdan.cc/unparam v0.0.0-20221223090309-7455f1af531d // indirect
 )
-
-replace github.com/FluxAstromeshLabs/cometbft-plugin => ../cometbft-plugin

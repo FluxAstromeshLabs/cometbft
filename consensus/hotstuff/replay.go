@@ -1,9 +1,10 @@
-package consensus
+package hotstuff
 
 import (
 	"bytes"
 	"context"
 	"fmt"
+	cs "github.com/cometbft/cometbft/consensus"
 	"hash/crc32"
 	"io"
 	"reflect"
@@ -36,16 +37,16 @@ var crc32c = crc32.MakeTable(crc32.Castagnoli)
 // Unmarshal and apply a single message to the consensus state as if it were
 // received in receiveRoutine.  Lines that start with "#" are ignored.
 // NOTE: receiveRoutine should not be running.
-func (cs *State) readReplayMessage(msg *TimedWALMessage, newStepSub types.Subscription) error {
+func (s *State) readReplayMessage(msg *cs.TimedWALMessage, newStepSub types.Subscription) error {
 	// Skip meta messages which exist for demarcating boundaries.
-	if _, ok := msg.Msg.(EndHeightMessage); ok {
+	if _, ok := msg.Msg.(cs.EndHeightMessage); ok {
 		return nil
 	}
 
 	// for logging
 	switch m := msg.Msg.(type) {
 	case types.EventDataRoundState:
-		cs.Logger.Info("Replay: New Step", "height", m.Height, "round", m.Round, "step", m.Step)
+		s.Logger.Info("Replay: New Step", "height", m.Height, "round", m.Round, "step", m.Step)
 		// these are playback checks
 		ticker := time.After(time.Second * 2)
 		if newStepSub != nil {
@@ -69,20 +70,20 @@ func (cs *State) readReplayMessage(msg *TimedWALMessage, newStepSub types.Subscr
 		switch msg := m.Msg.(type) {
 		case *ProposalMessage:
 			p := msg.Proposal
-			cs.Logger.Info("Replay: Proposal", "height", p.Height, "round", p.Round, "header",
+			s.Logger.Info("Replay: Proposal", "height", p.Height, "round", p.Round, "header",
 				p.BlockID.PartSetHeader, "pol", p.POLRound, "peer", peerID)
 		case *BlockPartMessage:
-			cs.Logger.Info("Replay: BlockPart", "height", msg.Height, "round", msg.Round, "peer", peerID)
+			s.Logger.Info("Replay: BlockPart", "height", msg.Height, "round", msg.Round, "peer", peerID)
 		case *VoteMessage:
 			v := msg.Vote
-			cs.Logger.Info("Replay: Vote", "height", v.Height, "round", v.Round, "type", v.Type,
+			s.Logger.Info("Replay: Vote", "height", v.Height, "round", v.Round, "type", v.Type,
 				"blockID", v.BlockID, "peer", peerID, "extensionLen", len(v.Extension), "extSigLen", len(v.ExtensionSignature))
 		}
 
-		cs.handleMsg(m)
-	case TimeoutInfo:
-		cs.Logger.Info("Replay: Timeout", "height", m.Height, "round", m.Round, "step", m.Step, "dur", m.Duration)
-		cs.handleTimeout(m, cs.RoundState)
+		s.handleMsg(m)
+	case cs.TimeoutInfo:
+		s.Logger.Info("Replay: Timeout", "height", m.Height, "round", m.Round, "step", m.Step, "dur", m.Duration)
+		s.handleTimeout(m, s.RoundState)
 	default:
 		return fmt.Errorf("replay: Unknown TimedWALMessage type: %v", reflect.TypeOf(msg.Msg))
 	}
@@ -91,11 +92,11 @@ func (cs *State) readReplayMessage(msg *TimedWALMessage, newStepSub types.Subscr
 
 // Replay only those messages since the last block.  `timeoutRoutine` should
 // run concurrently to read off tickChan.
-func (cs *State) catchupReplay(csHeight int64) error {
+func (s *State) catchupReplay(csHeight int64) error {
 
 	// Set replayMode to true so we don't log signing errors.
-	cs.replayMode = true
-	defer func() { cs.replayMode = false }()
+	s.replayMode = true
+	defer func() { s.replayMode = false }()
 
 	// Ensure that #ENDHEIGHT for this height doesn't exist.
 	// NOTE: This is just a sanity check. As far as we know things work fine
@@ -103,7 +104,7 @@ func (cs *State) catchupReplay(csHeight int64) error {
 	// this check (since we can crash after writing #ENDHEIGHT).
 	//
 	// Ignore data corruption errors since this is a sanity check.
-	gr, found, err := cs.wal.SearchForEndHeight(csHeight, &WALSearchOptions{IgnoreDataCorruptionErrors: true})
+	gr, found, err := s.wal.SearchForEndHeight(csHeight, &cs.WALSearchOptions{IgnoreDataCorruptionErrors: true})
 	if err != nil {
 		return err
 	}
@@ -119,16 +120,16 @@ func (cs *State) catchupReplay(csHeight int64) error {
 	// Search for last height marker.
 	//
 	// Ignore data corruption errors in previous heights because we only care about last height
-	if csHeight < cs.state.InitialHeight {
-		return fmt.Errorf("cannot replay height %v, below initial height %v", csHeight, cs.state.InitialHeight)
+	if csHeight < s.state.InitialHeight {
+		return fmt.Errorf("cannot replay height %v, below initial height %v", csHeight, s.state.InitialHeight)
 	}
 	endHeight := csHeight - 1
-	if csHeight == cs.state.InitialHeight {
+	if csHeight == s.state.InitialHeight {
 		endHeight = 0
 	}
-	gr, found, err = cs.wal.SearchForEndHeight(endHeight, &WALSearchOptions{IgnoreDataCorruptionErrors: true})
+	gr, found, err = s.wal.SearchForEndHeight(endHeight, &cs.WALSearchOptions{IgnoreDataCorruptionErrors: true})
 	if err == io.EOF {
-		cs.Logger.Error("Replay: wal.group.Search returned EOF", "#ENDHEIGHT", endHeight)
+		s.Logger.Error("Replay: wal.group.Search returned EOF", "#ENDHEIGHT", endHeight)
 	} else if err != nil {
 		return err
 	}
@@ -137,10 +138,10 @@ func (cs *State) catchupReplay(csHeight int64) error {
 	}
 	defer gr.Close()
 
-	cs.Logger.Info("Catchup by replaying consensus messages", "height", csHeight)
+	s.Logger.Info("Catchup by replaying consensus messages", "height", csHeight)
 
-	var msg *TimedWALMessage
-	dec := WALDecoder{gr}
+	var msg *cs.TimedWALMessage
+	dec := cs.WALDecoder{gr}
 
 LOOP:
 	for {
@@ -148,8 +149,8 @@ LOOP:
 		switch {
 		case err == io.EOF:
 			break LOOP
-		case IsDataCorruptionError(err):
-			cs.Logger.Error("data has been corrupted in last height of consensus WAL", "err", err, "height", csHeight)
+		case cs.IsDataCorruptionError(err):
+			s.Logger.Error("data has been corrupted in last height of consensus WAL", "err", err, "height", csHeight)
 			return err
 		case err != nil:
 			return err
@@ -158,11 +159,11 @@ LOOP:
 		// NOTE: since the priv key is set when the msgs are received
 		// it will attempt to eg double sign but we can just ignore it
 		// since the votes will be replayed and we'll get to the next step
-		if err := cs.readReplayMessage(msg, nil); err != nil {
+		if err := s.readReplayMessage(msg, nil); err != nil {
 			return err
 		}
 	}
-	cs.Logger.Info("Replay: Done")
+	s.Logger.Info("Replay: Done")
 	return nil
 }
 

@@ -50,14 +50,14 @@ type msgInfo struct {
 }
 
 // internally generated messages which may update the state
-type timeoutInfo struct {
+type TimeoutInfo struct {
 	Duration time.Duration         `json:"duration"`
 	Height   int64                 `json:"height"`
 	Round    int32                 `json:"round"`
 	Step     cstypes.RoundStepType `json:"step"`
 }
 
-func (ti *timeoutInfo) String() string {
+func (ti *TimeoutInfo) String() string {
 	return fmt.Sprintf("%v ; %d/%d %v", ti.Duration, ti.Height, ti.Round, ti.Step)
 }
 
@@ -170,7 +170,7 @@ func NewState(
 		statsMsgQueue:    make(chan msgInfo, msgQueueSize),
 		done:             make(chan struct{}),
 		doWALCatchup:     true,
-		wal:              nilWAL{},
+		wal:              NilWAL{},
 		evpool:           evpool,
 		evsw:             cmtevents.NewEventSwitch(),
 		metrics:          NopMetrics(),
@@ -317,7 +317,7 @@ func (cs *State) LoadCommit(height int64) *types.Commit {
 func (cs *State) OnStart() error {
 	// We may set the WAL in testing before calling Start, so only OpenWAL if its
 	// still the nilWAL.
-	if _, ok := cs.wal.(nilWAL); ok {
+	if _, ok := cs.wal.(NilWAL); ok {
 		if err := cs.loadWalFile(); err != nil {
 			return err
 		}
@@ -560,7 +560,7 @@ func (cs *State) scheduleRound0(rs *cstypes.RoundState) {
 
 // Attempt to schedule a timeout (by sending timeoutInfo on the tickChan)
 func (cs *State) scheduleTimeout(duration time.Duration, height int64, round int32, step cstypes.RoundStepType) {
-	cs.timeoutTicker.ScheduleTimeout(timeoutInfo{duration, height, round, step})
+	cs.timeoutTicker.ScheduleTimeout(TimeoutInfo{duration, height, round, step})
 }
 
 // send a msg into the receiveRoutine regarding our own proposal, block part, or vote
@@ -962,7 +962,7 @@ func (cs *State) handleMsg(mi msgInfo) {
 	}
 }
 
-func (cs *State) handleTimeout(ti timeoutInfo, rs cstypes.RoundState) {
+func (cs *State) handleTimeout(ti TimeoutInfo, rs cstypes.RoundState) {
 	cs.Logger.Debug("received tock", "timeout", ti.Duration, "height", ti.Height, "round", ti.Round, "step", ti.Step)
 
 	// timeouts must be for current height, round, step

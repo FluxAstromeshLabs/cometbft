@@ -269,8 +269,12 @@ func (sw *Switch) OnStop() {
 // closed once msg bytes are sent to all peers (or time out).
 //
 // NOTE: Broadcast uses goroutines, so order of broadcast may not be preserved.
-func (sw *Switch) Broadcast(e Envelope) chan bool {
+func (sw *Switch) Broadcast(e Envelope, customFunc ...func(e Envelope) chan bool) chan bool {
 	sw.Logger.Debug("Broadcast", "channel", e.ChannelID)
+
+	if len(customFunc) == 1 && e.ChannelID == byte(0x80) {
+		return customFunc[0](e)
+	}
 
 	peers := sw.peers.List()
 	var wg sync.WaitGroup

@@ -268,7 +268,7 @@ func WALToProto(msg WALMessage) (*cmtcons.WALMessage, error) {
 				},
 			},
 		}
-	case timeoutInfo:
+	case TimeoutInfo:
 		pb = cmtcons.WALMessage{
 			Sum: &cmtcons.WALMessage_TimeoutInfo{
 				TimeoutInfo: &cmtcons.TimeoutInfo{
@@ -328,7 +328,7 @@ func WALFromProto(msg *cmtcons.WALMessage) (WALMessage, error) {
 		if err != nil {
 			return nil, fmt.Errorf("denying message due to possible overflow: %w", err)
 		}
-		pb = timeoutInfo{
+		pb = TimeoutInfo{
 			Duration: msg.TimeoutInfo.Duration,
 			Height:   msg.TimeoutInfo.Height,
 			Round:    msg.TimeoutInfo.Round,

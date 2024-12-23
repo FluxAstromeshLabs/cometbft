@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/FluxAstromeshLabs/cometbft-plugin/hotstuff"
+	"github.com/cometbft/cometbft/consensus/hotstuff"
 	"net"
 	"net/http"
 	"os"
