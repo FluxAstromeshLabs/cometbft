@@ -519,7 +519,10 @@ func (s *State) votesFromSeenCommit(state sm.State) (*types.VoteSet, error) {
 }
 
 func (s *State) updateToState(state sm.State) {
-	// TODO
+	validators := state.Validators
+	s.Validators = validators
+	s.state = state
+
 }
 
 func (s *State) newStep() {
@@ -730,8 +733,19 @@ func (s *State) handleTimeout(ti cs.TimeoutInfo, rs cstypes.RoundState) {
 
 	switch ti.Step {
 	default:
-		fmt.Println("received foo timeout", ti)
-		s.evsw.FireEvent(FooEvent, &hotstufftypes.FooState{Name: FooEvent, Height: rs.Height})
+		// only fire event if this is proposer
+		if s.privValidatorPubKey == nil {
+			return
+		}
+		address := s.privValidatorPubKey.Address()
+		if !s.Validators.HasAddress(address) {
+			return
+		}
+		if s.isProposer(address) {
+			fmt.Println(fmt.Sprintf("proposer %s broadcasting %s", address.String(), FooEvent))
+			s.evsw.FireEvent(FooEvent, &hotstufftypes.FooState{Name: FooEvent, Height: rs.Height})
+		}
+
 	}
 }
 
@@ -927,6 +941,15 @@ func (s *State) signAddVote(
 }
 
 func (s *State) updatePrivValidatorPubKey() error {
+	if s.privValidator == nil {
+		return nil
+	}
+
+	pubKey, err := s.privValidator.GetPubKey()
+	if err != nil {
+		return err
+	}
+	s.privValidatorPubKey = pubKey
 	return nil
 }
 
