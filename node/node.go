@@ -408,7 +408,7 @@ func NewNodeWithContext(ctx context.Context,
 
 	// make hotstuff consensus reactor
 	hotstuffState := hotstuff.NewState(config.Consensus, state, blockExec, blockStore, mempool, evidencePool)
-	hotstuffReactor := hotstuff.NewReactor(hotstuffState, stateSync || blockSync)
+	hotstuffReactor := hotstuff.NewReactor(hotstuffState)
 	hotstuffReactor.SetLogger(consensusLogger)
 	hotstuffReactor.SetEventBus(eventBus)
 	customReactorOpt := CustomReactors(map[string]p2p.Reactor{"HOTSTUFF_TEST": hotstuffReactor})

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	cs "github.com/cometbft/cometbft/consensus"
+	hotstufftypes "github.com/cometbft/cometbft/consensus/hotstuff/types"
 	cstypes "github.com/cometbft/cometbft/consensus/types"
 	"github.com/cometbft/cometbft/libs/bits"
 	cmtevents "github.com/cometbft/cometbft/libs/events"
@@ -15,7 +16,6 @@ import (
 	sm "github.com/cometbft/cometbft/state"
 	"github.com/cometbft/cometbft/types"
 	"sync"
-	"time"
 )
 
 type Message interface {
@@ -41,10 +41,10 @@ type HotstuffReactor struct {
 	Metrics *cs.Metrics
 }
 
-func NewReactor(consensusState *State, waitSync bool) *HotstuffReactor {
+func NewReactor(consensusState *State) *HotstuffReactor {
 	conR := &HotstuffReactor{
 		conS:     consensusState,
-		waitSync: waitSync,
+		waitSync: false,
 		rs:       consensusState.GetRoundState(),
 		Metrics:  cs.NopMetrics(),
 	}
@@ -94,6 +94,8 @@ func (conR *HotstuffReactor) OnStart() error {
 	go conR.peerStatsRoutine()
 
 	conR.subscribeToBroadcastEvents()
+
+	// get state and set to conR.rs every 100 micro second, inefficient
 	go conR.updateRoundStateRoutine()
 
 	if !conR.WaitSync() {
@@ -120,7 +122,7 @@ func (conR *HotstuffReactor) GetChannels() []*p2p.ChannelDescriptor {
 			Priority:            6,
 			SendQueueCapacity:   100,
 			RecvMessageCapacity: MaxMsgSize,
-			MessageType:         &cmtcons.Message{},
+			MessageType:         &hotstufftypes.FooState{},
 		},
 		{
 			ID:                  BarChannel,
@@ -152,16 +154,10 @@ func (conR *HotstuffReactor) GetChannels() []*p2p.ChannelDescriptor {
 func (conR *HotstuffReactor) InitPeer(peer p2p.Peer) p2p.Peer {
 	peerState := cs.NewPeerState(peer).SetLogger(conR.Logger)
 	peer.Set(types.PeerStateKey, peerState)
-	fmt.Println("InitPeer", peerState)
 	return peer
 }
 
 func (conR *HotstuffReactor) AddPeer(peer p2p.Peer) {
-	peerState, ok := peer.Get(types.PeerStateKey).(*cs.PeerState)
-	if !ok {
-		panic(fmt.Sprintf("peer %v has no state", peer))
-	}
-	fmt.Println("AddPeer", peerState)
 }
 
 func (conR *HotstuffReactor) RemovePeer(p2p.Peer, interface{}) {
@@ -182,23 +178,9 @@ func (conR *HotstuffReactor) WaitSync() bool {
 
 func (conR *HotstuffReactor) subscribeToBroadcastEvents() {
 	const subscriber = "hotstuff-reactor"
-	if err := conR.conS.evsw.AddListenerForEvent(subscriber, types.EventNewRoundStep,
+	if err := conR.conS.evsw.AddListenerForEvent(subscriber, FooEvent,
 		func(data cmtevents.EventData) {
-			conR.broadcastNewRoundStepMessage(data.(*cstypes.RoundState))
-		}); err != nil {
-		conR.Logger.Error("Error adding listener for events", "err", err)
-	}
-
-	if err := conR.conS.evsw.AddListenerForEvent(subscriber, types.EventValidBlock,
-		func(data cmtevents.EventData) {
-			conR.broadcastNewValidBlockMessage(data.(*cstypes.RoundState))
-		}); err != nil {
-		conR.Logger.Error("Error adding listener for events", "err", err)
-	}
-
-	if err := conR.conS.evsw.AddListenerForEvent(subscriber, types.EventVote,
-		func(data cmtevents.EventData) {
-			conR.broadcastHasVoteMessage(data.(*types.Vote))
+			conR.broadcastFooMessage(data.(*hotstufftypes.FooState))
 		}); err != nil {
 		conR.Logger.Error("Error adding listener for events", "err", err)
 	}
@@ -207,12 +189,12 @@ func (conR *HotstuffReactor) subscribeToBroadcastEvents() {
 func (conR *HotstuffReactor) unsubscribeFromBroadcastEvents() {
 }
 
-func (conR *HotstuffReactor) broadcastNewRoundStepMessage(rs *cstypes.RoundState) {
-	nrsMsg := makeRoundStepMessage(rs)
+func (conR *HotstuffReactor) broadcastFooMessage(m *hotstufftypes.FooState) {
+	fmt.Println("broadcastFooMessage", m)
 	conR.Switch.Broadcast(p2p.Envelope{
 		ChannelID: FooChannel,
-		Message:   nrsMsg,
-	})
+		Message:   m,
+	}, conR.broadcastFunc)
 }
 
 func (conR *HotstuffReactor) broadcastNewValidBlockMessage(rs *cstypes.RoundState) {
@@ -271,17 +253,6 @@ func (conR *HotstuffReactor) String() string {
 
 func (conR *HotstuffReactor) StringIndented(indent string) string {
 	return "HotstuffConsensusReactor"
-}
-
-func makeRoundStepMessage(rs *cstypes.RoundState) (nrsMsg *cmtcons.NewRoundStep) {
-	nrsMsg = &cmtcons.NewRoundStep{
-		Height:                rs.Height,
-		Round:                 rs.Round,
-		Step:                  uint32(rs.Step),
-		SecondsSinceStartTime: int64(time.Since(rs.StartTime).Seconds()),
-		LastCommitRound:       rs.LastCommit.GetRound(),
-	}
-	return
 }
 
 //-------------------------------------

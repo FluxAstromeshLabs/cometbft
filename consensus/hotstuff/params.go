@@ -7,3 +7,7 @@ const (
 	PongChannel = byte(0x83)
 	MaxMsgSize  = 1048576 // 1MB
 )
+
+const (
+	FooEvent = "FooEvent"
+)

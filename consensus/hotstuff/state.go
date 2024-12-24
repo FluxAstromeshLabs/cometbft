@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	cs "github.com/cometbft/cometbft/consensus"
+	hotstufftypes "github.com/cometbft/cometbft/consensus/hotstuff/types"
 	"github.com/cometbft/cometbft/libs/fail"
 	cmtmath "github.com/cometbft/cometbft/libs/math"
 	cmtos "github.com/cometbft/cometbft/libs/os"
@@ -464,14 +465,22 @@ func (s *State) updateHeight(height int64) {
 }
 
 func (s *State) updateRoundStep(round int32, step cstypes.RoundStepType) {
-	// TODO
+	if !s.replayMode {
+		if round != s.Round || round == 0 && step == cstypes.RoundStepNewRound {
+			s.metrics.MarkRound(s.Round, s.StartTime)
+		}
+		if s.Step != step {
+			s.metrics.MarkStep(s.Step)
+		}
+	}
+	s.Round = round
+	s.Step = step
 }
 
 func (s *State) scheduleRound0(rs *cstypes.RoundState) {
-	fmt.Println("round 0 scheduled", rs)
-	// s.Logger.Info("scheduleRound0", "now", cmttime.Now(), "startTime", cs.StartTime)
-	sleepDuration := rs.StartTime.Sub(cmttime.Now())
-	s.scheduleTimeout(sleepDuration, rs.Height, 0, cstypes.RoundStepNewHeight)
+	fmt.Println("round 0 scheduled")
+	sleepDuration := time.Millisecond * 300
+	s.scheduleTimeout(sleepDuration, 17, 0, cstypes.RoundStepNewHeight)
 }
 
 func (s *State) scheduleTimeout(duration time.Duration, height int64, round int32, step cstypes.RoundStepType) {
@@ -713,51 +722,16 @@ func (s *State) handleMsg(mi msgInfo) {
 }
 
 func (s *State) handleTimeout(ti cs.TimeoutInfo, rs cstypes.RoundState) {
-	s.Logger.Debug("received tock", "timeout", ti.Duration, "height", ti.Height, "round", ti.Round, "step", ti.Step)
-
-	// timeouts must be for current height, round, step
-	if ti.Height != rs.Height || ti.Round < rs.Round || (ti.Round == rs.Round && ti.Step < rs.Step) {
-		s.Logger.Debug("ignoring tock because we are ahead", "height", rs.Height, "round", rs.Round, "step", rs.Step)
-		return
-	}
+	s.Logger.Debug("hotstuff timeout", "timeout", ti.Duration, "height", ti.Height, "round", ti.Round, "step", ti.Step)
 
 	// the timeout will now cause a state transition
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
 
 	switch ti.Step {
-	case cstypes.RoundStepNewHeight:
-		// NewRound event fired from enterNewRound.
-		// XXX: should we fire timeout here (for timeout commit)?
-		s.enterNewRound(ti.Height, 0)
-
-	case cstypes.RoundStepNewRound:
-		s.enterPropose(ti.Height, ti.Round)
-
-	case cstypes.RoundStepPropose:
-		if err := s.eventBus.PublishEventTimeoutPropose(s.RoundStateEvent()); err != nil {
-			s.Logger.Error("failed publishing timeout propose", "err", err)
-		}
-
-		s.enterPrevote(ti.Height, ti.Round)
-
-	case cstypes.RoundStepPrevoteWait:
-		if err := s.eventBus.PublishEventTimeoutWait(s.RoundStateEvent()); err != nil {
-			s.Logger.Error("failed publishing timeout wait", "err", err)
-		}
-
-		s.enterPrecommit(ti.Height, ti.Round)
-
-	case cstypes.RoundStepPrecommitWait:
-		if err := s.eventBus.PublishEventTimeoutWait(s.RoundStateEvent()); err != nil {
-			s.Logger.Error("failed publishing timeout wait", "err", err)
-		}
-
-		s.enterPrecommit(ti.Height, ti.Round)
-		s.enterNewRound(ti.Height, ti.Round+1)
-
 	default:
-		panic(fmt.Sprintf("invalid timeout step: %v", ti.Step))
+		fmt.Println("received foo timeout", ti)
+		s.evsw.FireEvent(FooEvent, &hotstufftypes.FooState{Name: FooEvent, Height: rs.Height})
 	}
 }
 
@@ -836,7 +810,6 @@ func (s *State) enterNewRound(height int64, round int32) {
 	s.Votes.SetRound(cmtmath.SafeAddInt32(round, 1)) // also track next round (round+1) to allow round-skipping
 	s.TriggeredTimeoutPrecommit = false
 
-	// TODO: this will publish events -> gossip events to other peers
 	if err := s.eventBus.PublishEventNewRound(s.NewRoundEvent()); err != nil {
 		s.Logger.Error("failed publishing new round", "err", err)
 	}
