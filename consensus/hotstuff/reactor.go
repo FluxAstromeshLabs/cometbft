@@ -118,11 +118,11 @@ func (conR *HotstuffReactor) SwitchToConsensus(state sm.State, skipWAL bool) {
 func (conR *HotstuffReactor) GetChannels() []*p2p.ChannelDescriptor {
 	return []*p2p.ChannelDescriptor{
 		{
-			ID:                  FooChannel,
+			ID:                  ProposalChannel,
 			Priority:            6,
 			SendQueueCapacity:   100,
 			RecvMessageCapacity: MaxMsgSize,
-			MessageType:         &hotstufftypes.FooState{},
+			MessageType:         &hotstufftypes.Proposal{},
 		},
 		{
 			ID:                  BarChannel,
@@ -164,7 +164,18 @@ func (conR *HotstuffReactor) RemovePeer(p2p.Peer, interface{}) {
 }
 
 func (conR *HotstuffReactor) Receive(e p2p.Envelope) {
-	fmt.Println("Receive", e.Src, e.ChannelID, e.Message)
+	ps, ok := e.Src.Get(types.PeerStateKey).(*cs.PeerState)
+	if !ok {
+		panic(fmt.Sprintf("Peer %v has no state", e.Src))
+	}
+
+	switch e.ChannelID {
+	case ProposalChannel:
+		switch msg := e.Message.(type) {
+		case *hotstufftypes.Proposal:
+			fmt.Println("Receive", ps.String(), msg)
+		}
+	}
 }
 
 func (conR *HotstuffReactor) SetEventBus(b *types.EventBus) {
@@ -178,21 +189,23 @@ func (conR *HotstuffReactor) WaitSync() bool {
 
 func (conR *HotstuffReactor) subscribeToBroadcastEvents() {
 	const subscriber = "hotstuff-reactor"
-	if err := conR.conS.evsw.AddListenerForEvent(subscriber, FooEvent,
+	if err := conR.conS.evsw.AddListenerForEvent(subscriber, ProposalEvent,
 		func(data cmtevents.EventData) {
-			conR.broadcastFooMessage(data.(*hotstufftypes.FooState))
+			conR.broadcastProposalMessage(data.(*hotstufftypes.Proposal))
 		}); err != nil {
 		conR.Logger.Error("Error adding listener for events", "err", err)
 	}
 }
 
 func (conR *HotstuffReactor) unsubscribeFromBroadcastEvents() {
+	const subscriber = "hotstuff-reactor"
+	conR.conS.evsw.RemoveListener(subscriber)
 }
 
-func (conR *HotstuffReactor) broadcastFooMessage(m *hotstufftypes.FooState) {
-	fmt.Println("broadcastFooMessage", m)
+func (conR *HotstuffReactor) broadcastProposalMessage(m *hotstufftypes.Proposal) {
+	fmt.Println("broadcastProposalMessage", m)
 	conR.Switch.Broadcast(p2p.Envelope{
-		ChannelID: FooChannel,
+		ChannelID: ProposalChannel,
 		Message:   m,
 	}, conR.broadcastFunc)
 }

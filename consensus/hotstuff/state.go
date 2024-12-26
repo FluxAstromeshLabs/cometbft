@@ -742,8 +742,8 @@ func (s *State) handleTimeout(ti cs.TimeoutInfo, rs cstypes.RoundState) {
 			return
 		}
 		if s.isProposer(address) {
-			fmt.Println(fmt.Sprintf("proposer %s broadcasting %s", address.String(), FooEvent))
-			s.evsw.FireEvent(FooEvent, &hotstufftypes.FooState{Name: FooEvent, Height: rs.Height})
+			fmt.Println(fmt.Sprintf("proposer %s broadcasting %s", address.String(), ProposalEvent))
+			s.evsw.FireEvent(ProposalEvent, &hotstufftypes.Proposal{Type: hotstufftypes.ProposalType, Height: ti.Height, Round: ti.Round})
 		}
 
 	}
