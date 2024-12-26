@@ -107,7 +107,7 @@ type State struct {
 	// some functions can be overwritten for testing
 	decideProposal func(height int64, round int32)
 	doPrevote      func(height int64, round int32)
-	setProposal    func(proposal *types.Proposal) error
+	setProposal    func(proposal *hotstufftypes.Proposal) error
 
 	// closed when we finish shutting down
 	done chan struct{}
@@ -644,10 +644,10 @@ func (s *State) handleMsg(mi msgInfo) {
 	msg, peerID := mi.Msg, mi.PeerID
 
 	switch msg := msg.(type) {
-	case *ProposalMessage:
+	case *hotstufftypes.Proposal:
 		// will not cause transition.
 		// once proposal is set, we can receive block parts
-		err = s.setProposal(msg.Proposal)
+		err = s.setProposal(msg)
 
 	case *BlockPartMessage:
 		// if the proposal is complete, we'll enterPrevote or tryFinalizeCommit
@@ -900,7 +900,8 @@ func (s *State) finalizeCommit(height int64) {
 func (s *State) recordMetrics(height int64, block *types.Block) {
 }
 
-func (s *State) defaultSetProposal(proposal *types.Proposal) error {
+func (s *State) defaultSetProposal(proposal *hotstufftypes.Proposal) error {
+	fmt.Println("proposal set for this node state")
 	return nil
 }
 

@@ -164,7 +164,7 @@ func (conR *HotstuffReactor) RemovePeer(p2p.Peer, interface{}) {
 }
 
 func (conR *HotstuffReactor) Receive(e p2p.Envelope) {
-	ps, ok := e.Src.Get(types.PeerStateKey).(*cs.PeerState)
+	_, ok := e.Src.Get(types.PeerStateKey).(*cs.PeerState)
 	if !ok {
 		panic(fmt.Sprintf("Peer %v has no state", e.Src))
 	}
@@ -173,7 +173,11 @@ func (conR *HotstuffReactor) Receive(e p2p.Envelope) {
 	case ProposalChannel:
 		switch msg := e.Message.(type) {
 		case *hotstufftypes.Proposal:
-			fmt.Println("Receive", ps.String(), msg)
+			//set peer state
+			//ps.SetHasProposal(msg)
+
+			// put msg to peerMsgQueue to set our state
+			conR.conS.peerMsgQueue <- msgInfo{msg, e.Src.ID()}
 		}
 	}
 }
