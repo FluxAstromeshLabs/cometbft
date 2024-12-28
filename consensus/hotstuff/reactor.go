@@ -152,8 +152,8 @@ func (conR *HotstuffReactor) GetChannels() []*p2p.ChannelDescriptor {
 }
 
 func (conR *HotstuffReactor) InitPeer(peer p2p.Peer) p2p.Peer {
-	peerState := cs.NewPeerState(peer).SetLogger(conR.Logger)
-	peer.Set(types.PeerStateKey, peerState)
+	peerState := NewPeerState(peer).SetLogger(conR.Logger)
+	peer.Set(HotstuffPeerStateKey, peerState)
 	return peer
 }
 
@@ -164,7 +164,7 @@ func (conR *HotstuffReactor) RemovePeer(p2p.Peer, interface{}) {
 }
 
 func (conR *HotstuffReactor) Receive(e p2p.Envelope) {
-	_, ok := e.Src.Get(types.PeerStateKey).(*cs.PeerState)
+	_, ok := e.Src.Get(HotstuffPeerStateKey).(*PeerState)
 	if !ok {
 		panic(fmt.Sprintf("Peer %v has no state", e.Src))
 	}

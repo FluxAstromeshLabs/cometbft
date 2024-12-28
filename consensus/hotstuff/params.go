@@ -9,5 +9,9 @@ const (
 )
 
 const (
+	HotstuffPeerStateKey = "HotstuffReactor.peerState"
+)
+
+const (
 	ProposalEvent = "ProposalEvent"
 )
