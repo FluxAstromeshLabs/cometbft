@@ -3,7 +3,6 @@ package hotstuff
 import (
 	"fmt"
 	hotstufftypes "github.com/cometbft/cometbft/consensus/hotstuff/types"
-	cstypes "github.com/cometbft/cometbft/consensus/types"
 	"github.com/cometbft/cometbft/libs/bits"
 	cmtjson "github.com/cometbft/cometbft/libs/json"
 	"github.com/cometbft/cometbft/libs/log"
@@ -11,7 +10,67 @@ import (
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	"github.com/cometbft/cometbft/types"
 	"sync"
+	"time"
 )
+
+//-----------------------------------------------------------------------------
+
+// PeerRoundState contains the known state of a peer.
+// NOTE: Read-only when returned by PeerState.GetRoundState().
+type PeerRoundState struct {
+	Height int64         `json:"height"` // Height peer is at
+	Round  int32         `json:"round"`  // Round peer is at, -1 if unknown.
+	Step   RoundStepType `json:"step"`   // Step peer is at
+
+	// Estimated start of round 0 at this height
+	StartTime time.Time `json:"start_time"`
+
+	// True if peer has proposal for this round
+	Proposal                   bool                `json:"proposal"`
+	ProposalBlockPartSetHeader types.PartSetHeader `json:"proposal_block_part_set_header"`
+	ProposalBlockParts         *bits.BitArray      `json:"proposal_block_parts"`
+	// Proposal's POL round. -1 if none.
+	ProposalPOLRound int32 `json:"proposal_pol_round"`
+
+	// nil until ProposalPOLMessage received.
+	ProposalPOL     *bits.BitArray `json:"proposal_pol"`
+	Prevotes        *bits.BitArray `json:"prevotes"`          // All votes peer has for this round
+	Precommits      *bits.BitArray `json:"precommits"`        // All precommits peer has for this round
+	LastCommitRound int32          `json:"last_commit_round"` // Round of commit for last height. -1 if none.
+	LastCommit      *bits.BitArray `json:"last_commit"`       // All commit precommits of commit for last height.
+
+	// Round that we have commit for. Not necessarily unique. -1 if none.
+	CatchupCommitRound int32 `json:"catchup_commit_round"`
+
+	// All commit precommits peer has for this height & CatchupCommitRound
+	CatchupCommit *bits.BitArray `json:"catchup_commit"`
+}
+
+// String returns a string representation of the PeerRoundState
+func (prs PeerRoundState) String() string {
+	return prs.StringIndented("")
+}
+
+// StringIndented returns a string representation of the PeerRoundState
+func (prs PeerRoundState) StringIndented(indent string) string {
+	return fmt.Sprintf(`PeerRoundState{
+%s  %v/%v/%v @%v
+%s  Proposal %v -> %v
+%s  POL      %v (round %v)
+%s  Prevotes   %v
+%s  Precommits %v
+%s  LastCommit %v (round %v)
+%s  Catchup    %v (round %v)
+%s}`,
+		indent, prs.Height, prs.Round, prs.Step, prs.StartTime,
+		indent, prs.ProposalBlockPartSetHeader, prs.ProposalBlockParts,
+		indent, prs.ProposalPOL, prs.ProposalPOLRound,
+		indent, prs.Prevotes,
+		indent, prs.Precommits,
+		indent, prs.LastCommit, prs.LastCommitRound,
+		indent, prs.CatchupCommit, prs.CatchupCommitRound,
+		indent)
+}
 
 // PeerState contains the known state of a peer, including its connection and
 // threadsafe access to its PeerRoundState.
@@ -21,9 +80,9 @@ type PeerState struct {
 	peer   p2p.Peer
 	logger log.Logger
 
-	mtx   sync.Mutex             // NOTE: Modify below using setters, never directly.
-	PRS   cstypes.PeerRoundState `json:"round_state"` // Exposed.
-	Stats *peerStateStats        `json:"stats"`       // Exposed.
+	mtx   sync.Mutex      // NOTE: Modify below using setters, never directly.
+	PRS   PeerRoundState  `json:"round_state"` // Exposed.
+	Stats *peerStateStats `json:"stats"`       // Exposed.
 }
 
 // peerStateStats holds internal statistics for a peer.
@@ -42,7 +101,7 @@ func NewPeerState(peer p2p.Peer) *PeerState {
 	return &PeerState{
 		peer:   peer,
 		logger: log.NewNopLogger(),
-		PRS: cstypes.PeerRoundState{
+		PRS: PeerRoundState{
 			Round:              -1,
 			ProposalPOLRound:   -1,
 			LastCommitRound:    -1,
@@ -61,7 +120,7 @@ func (ps *PeerState) SetLogger(logger log.Logger) *PeerState {
 
 // GetRoundState returns an shallow copy of the PeerRoundState.
 // There's no point in mutating it since it won't change PeerState.
-func (ps *PeerState) GetRoundState() *cstypes.PeerRoundState {
+func (ps *PeerState) GetRoundState() *PeerRoundState {
 	ps.mtx.Lock()
 	defer ps.mtx.Unlock()
 
