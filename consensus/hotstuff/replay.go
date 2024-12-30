@@ -81,7 +81,7 @@ func (s *State) readReplayMessage(msg *cs.TimedWALMessage, newStepSub types.Subs
 		}
 
 		s.handleMsg(m)
-	case cs.TimeoutInfo:
+	case TimeoutInfo:
 		s.Logger.Info("Replay: Timeout", "height", m.Height, "round", m.Round, "step", m.Step, "dur", m.Duration)
 		s.handleTimeout(m, s.RoundState)
 	default:

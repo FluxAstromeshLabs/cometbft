@@ -7,13 +7,9 @@ import (
 	cs "github.com/cometbft/cometbft/consensus"
 	hotstufftypes "github.com/cometbft/cometbft/consensus/hotstuff/types"
 	"github.com/cometbft/cometbft/libs/fail"
-	cmtmath "github.com/cometbft/cometbft/libs/math"
 	cmtos "github.com/cometbft/cometbft/libs/os"
-	cmttime "github.com/cometbft/cometbft/types/time"
 	"github.com/go-kit/kit/metrics/discard"
-	"os"
 	"runtime/debug"
-	"sort"
 	"time"
 
 	cfg "github.com/cometbft/cometbft/config"
@@ -156,9 +152,9 @@ func NewState(
 		option(s)
 	}
 	// set function defaults (may be overwritten before calling Start)
-	s.decideProposal = s.defaultDecideProposal
-	s.doPrevote = s.defaultDoPrevote
-	s.setProposal = s.defaultSetProposal
+	//s.decideProposal = s.defaultDecideProposal
+	//s.doPrevote = s.defaultDoPrevote
+	//s.setProposal = s.defaultSetProposal
 
 	// We have no votes, so reconstruct LastCommit from SeenCommit.
 	if state.LastBlockHeight > 0 {
@@ -346,11 +342,11 @@ func (s *State) OnStart() error {
 
 			s.Logger.Debug("backed up WAL file", "src", s.config.WalFile(), "dst", corruptedFile)
 
-			// 3) try to repair (WAL file will be overwritten!)
-			if err := repairWalFile(corruptedFile, s.config.WalFile()); err != nil {
-				s.Logger.Error("the WAL repair failed", "err", err)
-				return err
-			}
+			//// 3) try to repair (WAL file will be overwritten!)
+			//if err := repairWalFile(corruptedFile, s.config.WalFile()); err != nil {
+			//	s.Logger.Error("the WAL repair failed", "err", err)
+			//	return err
+			//}
 
 			s.Logger.Info("successful WAL repair")
 
@@ -366,9 +362,9 @@ func (s *State) OnStart() error {
 	}
 
 	// Double Signing Risk Reduction
-	if err := s.checkDoubleSigningRisk(s.Height); err != nil {
-		return err
-	}
+	//if err := s.checkDoubleSigningRisk(s.Height); err != nil {
+	//	return err
+	//}
 
 	// now start the receiveRoutine
 	go s.receiveRoutine(0)
@@ -480,7 +476,7 @@ func (s *State) updateRoundStep(round int32, step cstypes.RoundStepType) {
 func (s *State) scheduleRound0(rs *cstypes.RoundState) {
 	fmt.Println("round 0 scheduled")
 	sleepDuration := time.Millisecond * 300
-	s.scheduleTimeout(sleepDuration, 17, 0, RoundStepNewView)
+	s.scheduleTimeout(sleepDuration, 17, 0, RoundStepPropose)
 }
 
 func (s *State) scheduleTimeout(duration time.Duration, height int64, round int32, step RoundStepType) {
@@ -636,10 +632,7 @@ func (s *State) receiveRoutine(maxSteps int) {
 func (s *State) handleMsg(mi msgInfo) {
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
-	var (
-		added bool
-		err   error
-	)
+	var err error
 
 	msg, peerID := mi.Msg, mi.PeerID
 
@@ -648,32 +641,6 @@ func (s *State) handleMsg(mi msgInfo) {
 		// will not cause transition.
 		// once proposal is set, we can receive block parts
 		err = s.setProposal(msg)
-
-	case *BlockPartMessage:
-		// if the proposal is complete, we'll enterPrevote or tryFinalizeCommit
-		added, err = s.addProposalBlockPart(msg, peerID)
-
-		// We unlock here to yield to any routines that need to read the the RoundState.
-		// Previously, this code held the lock from the point at which the final block
-		// part was received until the block executed against the application.
-		// This prevented the reactor from being able to retrieve the most updated
-		// version of the RoundState. The reactor needs the updated RoundState to
-		// gossip the now completed block.
-		//
-		// This code can be further improved by either always operating on a copy
-		// of RoundState and only locking when switching out State's copy of
-		// RoundState with the updated copy or by emitting RoundState events in
-		// more places for routines depending on it to listen for.
-		s.mtx.Unlock()
-
-		s.mtx.Lock()
-		if added && s.ProposalBlockParts.IsComplete() {
-			s.handleCompleteProposal(msg.Height)
-		}
-		if added {
-			s.statsMsgQueue <- mi
-		}
-
 		if err != nil && msg.Round != s.Round {
 			s.Logger.Debug(
 				"received block part from wrong round",
@@ -683,30 +650,6 @@ func (s *State) handleMsg(mi msgInfo) {
 			)
 			err = nil
 		}
-
-	case *VoteMessage:
-		// attempt to add the vote and dupeout the validator if its a duplicate signature
-		// if the vote gives us a 2/3-any or 2/3-one, we transition
-		added, err = s.tryAddVote(msg.Vote, peerID)
-		if added {
-			s.statsMsgQueue <- mi
-		}
-
-		// if err == ErrAddingVote {
-		// TODO: punish peer
-		// We probably don't want to stop the peer here. The vote does not
-		// necessarily comes from a malicious peer but can be just broadcasted by
-		// a typical peer.
-		// https://github.com/tendermint/tendermint/issues/1281
-		// }
-
-		// NOTE: the vote is broadcast to peers by the reactor listening
-		// for vote events
-
-		// TODO: If rs.Height == vote.Height && rs.Round < vote.Round,
-		// the peer is sending us CatchupCommit precommits.
-		// We could make note of this and help filter in broadcastHasVoteMessage().
-
 	default:
 		s.Logger.Error("unknown msg type", "type", fmt.Sprintf("%T", msg))
 		return
@@ -727,12 +670,11 @@ func (s *State) handleMsg(mi msgInfo) {
 func (s *State) handleTimeout(ti TimeoutInfo, rs cstypes.RoundState) {
 	s.Logger.Debug("hotstuff timeout", "timeout", ti.Duration, "height", ti.Height, "round", ti.Round, "step", ti.Step)
 
-	// the timeout will now cause a state transition
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
 
 	switch ti.Step {
-	default:
+	case RoundStepPropose:
 		// only fire event if this is proposer
 		if s.privValidatorPubKey == nil {
 			return
@@ -752,171 +694,14 @@ func (s *State) handleTimeout(ti TimeoutInfo, rs cstypes.RoundState) {
 func (s *State) handleTxsAvailable() {
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
-
-	// We only need to do this for round 0.
-	if s.Round != 0 {
-		return
-	}
-
-	switch s.Step {
-	case cstypes.RoundStepNewHeight: // timeoutCommit phase
-		if s.needProofBlock(s.Height) {
-			// enterPropose will be called by enterNewRound
-			return
-		}
-
-		// +1ms to ensure RoundStepNewRound timeout always happens after RoundStepNewHeight
-		timeoutCommit := s.StartTime.Sub(cmttime.Now()) + 1*time.Millisecond
-		s.scheduleTimeout(timeoutCommit, s.Height, 0, RoundStepNewView)
-
-	case cstypes.RoundStepNewRound: // after timeoutCommit
-		s.enterPropose(s.Height, 0)
-	}
-}
-
-func (s *State) enterNewRound(height int64, round int32) {
-	// TODO: learn what happened here and port hotstuff
-	fmt.Println("enterNewRound", height, round)
-
-	logger := s.Logger.With("height", height, "round", round)
-
-	if s.Height != height || round < s.Round || (s.Round == round && s.Step != cstypes.RoundStepNewHeight) {
-		logger.Debug(
-			"entering new round with invalid args",
-			"current", log.NewLazySprintf("%v/%v/%v", s.Height, s.Round, s.Step),
-		)
-		return
-	}
-
-	if now := cmttime.Now(); s.StartTime.After(now) {
-		logger.Debug("need to set a buffer and log message here for sanity", "start_time", s.StartTime, "now", now)
-	}
-
-	prevHeight, prevRound, prevStep := s.Height, s.Round, s.Step
-
-	// increment validators if necessary
-	validators := s.Validators
-	if s.Round < round {
-		validators = validators.Copy()
-		validators.IncrementProposerPriority(cmtmath.SafeSubInt32(round, s.Round))
-	}
-
-	// Setup new round
-	// we don't fire newStep for this step,
-	// but we fire an event, so update the round step first
-	s.updateRoundStep(round, cstypes.RoundStepNewRound)
-	s.Validators = validators
-	// If round == 0, we've already reset these upon new height, and meanwhile
-	// we might have received a proposal for round 0.
-	propAddress := validators.GetProposer().PubKey.Address()
-	if round != 0 {
-		logger.Info("resetting proposal info", "proposer", propAddress)
-		s.Proposal = nil
-		s.ProposalBlock = nil
-		s.ProposalBlockParts = nil
-	}
-
-	logger.Debug("entering new round",
-		"previous", log.NewLazySprintf("%v/%v/%v", prevHeight, prevRound, prevStep),
-		"proposer", propAddress,
-	)
-
-	s.Votes.SetRound(cmtmath.SafeAddInt32(round, 1)) // also track next round (round+1) to allow round-skipping
-	s.TriggeredTimeoutPrecommit = false
-
-	if err := s.eventBus.PublishEventNewRound(s.NewRoundEvent()); err != nil {
-		s.Logger.Error("failed publishing new round", "err", err)
-	}
-
-	// Wait for txs to be available in the mempool
-	// before we enterPropose in round 0. If the last block changed the app hash,
-	// we may need an empty "proof" block, and enterPropose immediately.
-	waitForTxs := s.config.WaitForTxs() && round == 0 && !s.needProofBlock(height)
-	if waitForTxs {
-		if s.config.CreateEmptyBlocksInterval > 0 {
-			s.scheduleTimeout(s.config.CreateEmptyBlocksInterval, height, round, RoundStepNewView)
-		}
-	} else {
-		s.enterPropose(height, round)
-	}
-}
-
-func (s *State) needProofBlock(height int64) bool {
-	return false
-}
-
-func (s *State) enterPropose(height int64, round int32) {
 }
 
 func (s *State) isProposer(address []byte) bool {
 	return bytes.Equal(s.Validators.GetProposer().Address, address)
 }
 
-func (s *State) defaultDecideProposal(height int64, round int32) {
-}
-
-func (s *State) isProposalComplete() bool {
-	if s.Proposal == nil || s.ProposalBlock == nil {
-		return false
-	}
-	// we have the proposal. if there's a POLRound,
-	// make sure we have the prevotes from it too
-	if s.Proposal.POLRound < 0 {
-		return true
-	}
-	// if this is false the proposer is lying or we haven't received the POL yet
-	return s.Votes.Prevotes(s.Proposal.POLRound).HasTwoThirdsMajority()
-}
-
 func (s *State) createProposalBlock(ctx context.Context) (*types.Block, error) {
 	return &types.Block{}, nil
-}
-
-func (s *State) enterPrevote(height int64, round int32) {
-}
-
-func (s *State) defaultDoPrevote(height int64, round int32) {
-}
-
-func (s *State) enterPrevoteWait(height int64, round int32) {
-}
-
-func (s *State) enterPrecommit(height int64, round int32) {
-}
-
-func (s *State) enterPrecommitWait(height int64, round int32) {
-}
-
-func (s *State) enterCommit(height int64, commitRound int32) {
-}
-
-func (s *State) tryFinalizeCommit(height int64) {
-}
-
-func (s *State) finalizeCommit(height int64) {
-}
-
-func (s *State) recordMetrics(height int64, block *types.Block) {
-}
-
-func (s *State) defaultSetProposal(proposal *hotstufftypes.Proposal) error {
-	fmt.Println("proposal set for this node state")
-	return nil
-}
-
-func (s *State) addProposalBlockPart(msg *BlockPartMessage, peerID p2p.ID) (added bool, err error) {
-	return true, nil
-}
-
-func (s *State) handleCompleteProposal(blockHeight int64) {
-}
-
-func (s *State) tryAddVote(vote *types.Vote, peerID p2p.ID) (bool, error) {
-	return true, nil
-}
-
-func (s *State) addVote(vote *types.Vote, peerID p2p.ID) (added bool, err error) {
-	return true, nil
 }
 
 func (s *State) signVote(
@@ -926,18 +711,6 @@ func (s *State) signVote(
 	block *types.Block,
 ) (*types.Vote, error) {
 	return &types.Vote{}, nil
-}
-
-func (s *State) voteTime() time.Time {
-	return time.Time{}
-}
-
-func (s *State) signAddVote(
-	msgType cmtproto.SignedMsgType,
-	hash []byte,
-	header types.PartSetHeader,
-	block *types.Block,
-) {
 }
 
 func (s *State) updatePrivValidatorPubKey() error {
@@ -950,93 +723,6 @@ func (s *State) updatePrivValidatorPubKey() error {
 		return err
 	}
 	s.privValidatorPubKey = pubKey
-	return nil
-}
-
-func (s *State) checkDoubleSigningRisk(height int64) error {
-	return nil
-}
-
-func (s *State) calculatePrevoteMessageDelayMetrics() {
-	if s.Proposal == nil {
-		return
-	}
-
-	ps := s.Votes.Prevotes(s.Round)
-	pl := ps.List()
-
-	sort.Slice(pl, func(i, j int) bool {
-		return pl[i].Timestamp.Before(pl[j].Timestamp)
-	})
-
-	var votingPowerSeen int64
-	for _, v := range pl {
-		_, val := s.Validators.GetByAddress(v.ValidatorAddress)
-		votingPowerSeen += val.VotingPower
-		if votingPowerSeen >= s.Validators.TotalVotingPower()*2/3+1 {
-			s.metrics.QuorumPrevoteDelay.With("proposer_address", s.Validators.GetProposer().Address.String()).Set(v.Timestamp.Sub(s.Proposal.Timestamp).Seconds())
-			break
-		}
-	}
-	if ps.HasAll() {
-		s.metrics.FullPrevoteDelay.With("proposer_address", s.Validators.GetProposer().Address.String()).Set(pl[len(pl)-1].Timestamp.Sub(s.Proposal.Timestamp).Seconds())
-	}
-}
-
-//---------------------------------------------------------
-
-func CompareHRS(h1 int64, r1 int32, s1 cstypes.RoundStepType, h2 int64, r2 int32, s2 cstypes.RoundStepType) int {
-	if h1 < h2 {
-		return -1
-	} else if h1 > h2 {
-		return 1
-	}
-	if r1 < r2 {
-		return -1
-	} else if r1 > r2 {
-		return 1
-	}
-	if s1 < s2 {
-		return -1
-	} else if s1 > s2 {
-		return 1
-	}
-	return 0
-}
-
-// repairWalFile decodes messages from src (until the decoder errors) and
-// writes them to dst.
-func repairWalFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	var (
-		dec = cs.NewWALDecoder(in)
-		enc = cs.NewWALEncoder(out)
-	)
-
-	// best-case repair (until first error is encountered)
-	for {
-		msg, err := dec.Decode()
-		if err != nil {
-			break
-		}
-
-		err = enc.Encode(msg)
-		if err != nil {
-			return fmt.Errorf("failed to encode msg: %w", err)
-		}
-	}
-
 	return nil
 }
 
