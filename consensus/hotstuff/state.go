@@ -14,10 +14,8 @@ import (
 	"time"
 
 	cfg "github.com/cometbft/cometbft/config"
-	cstypes "github.com/cometbft/cometbft/consensus/types"
 	"github.com/cometbft/cometbft/crypto"
 	cmtevents "github.com/cometbft/cometbft/libs/events"
-	cmtjson "github.com/cometbft/cometbft/libs/json"
 	"github.com/cometbft/cometbft/libs/log"
 	"github.com/cometbft/cometbft/libs/service"
 	cmtsync "github.com/cometbft/cometbft/libs/sync"
@@ -74,7 +72,8 @@ type State struct {
 
 	// internal state
 	mtx cmtsync.RWMutex
-	cstypes.RoundState
+	Round
+
 	state sm.State // State until height-1.
 	// privValidator pubkey, memoized for the duration of one block
 	// to avoid extra requests to HSM
@@ -173,9 +172,8 @@ func NewState(
 		}
 	}
 
-	s.updateToState(state)
-
 	// NOTE: we do not call scheduleRound0 yet, we do that upon Start()
+	s.state = state
 
 	s.BaseService = *service.NewBaseService(nil, "State", s)
 
@@ -216,36 +214,6 @@ func (s *State) GetState() sm.State {
 	s.mtx.RLock()
 	defer s.mtx.RUnlock()
 	return s.state.Copy()
-}
-
-// GetLastHeight returns the last height committed.
-// If there were no blocks, returns 0.
-func (s *State) GetLastHeight() int64 {
-	s.mtx.RLock()
-	defer s.mtx.RUnlock()
-	return s.RoundState.Height - 1
-}
-
-// GetRoundState returns a shallow copy of the internal consensus state.
-func (s *State) GetRoundState() *cstypes.RoundState {
-	s.mtx.RLock()
-	rs := s.RoundState // copy
-	s.mtx.RUnlock()
-	return &rs
-}
-
-// GetRoundStateJSON returns a json of RoundState.
-func (s *State) GetRoundStateJSON() ([]byte, error) {
-	s.mtx.RLock()
-	defer s.mtx.RUnlock()
-	return cmtjson.Marshal(s.RoundState)
-}
-
-// GetRoundStateSimpleJSON returns a json of RoundStateSimple
-func (s *State) GetRoundStateSimpleJSON() ([]byte, error) {
-	s.mtx.RLock()
-	defer s.mtx.RUnlock()
-	return cmtjson.Marshal(s.RoundState.RoundStateSimple())
 }
 
 // GetValidators returns a copy of the current validators.
@@ -374,7 +342,7 @@ func (s *State) OnStart() error {
 
 	// schedule the first round!
 	// use GetRoundState so we don't race the receiveRoutine for access
-	s.scheduleRound0(s.GetRoundState())
+	s.scheduleRound0()
 
 	return nil
 }
@@ -463,20 +431,7 @@ func (s *State) updateHeight(height int64) {
 	s.Height = height
 }
 
-func (s *State) updateRoundStep(round int32, step cstypes.RoundStepType) {
-	if !s.replayMode {
-		if round != s.Round || round == 0 && step == cstypes.RoundStepNewRound {
-			s.metrics.MarkRound(s.Round, s.StartTime)
-		}
-		if s.Step != step {
-			s.metrics.MarkStep(s.Step)
-		}
-	}
-	s.Round = round
-	s.Step = step
-}
-
-func (s *State) scheduleRound0(rs *cstypes.RoundState) {
+func (s *State) scheduleRound0() {
 	fmt.Println("round 0 scheduled")
 	sleepDuration := time.Millisecond * 300
 	s.scheduleTimeout(sleepDuration, 17, 0, RoundStepPropose)
@@ -515,31 +470,6 @@ func (s *State) votesFromExtendedCommit(state sm.State) (*types.VoteSet, error) 
 func (s *State) votesFromSeenCommit(state sm.State) (*types.VoteSet, error) {
 	// TODO
 	return nil, nil
-}
-
-func (s *State) updateToState(state sm.State) {
-	validators := state.Validators
-	s.Validators = validators
-	s.state = state
-
-}
-
-func (s *State) newStep() {
-	rs := s.RoundStateEvent()
-	if err := s.wal.Write(rs); err != nil {
-		s.Logger.Error("failed writing to WAL", "err", err)
-	}
-
-	s.nSteps++
-
-	// newStep is called by updateToState in NewState before the eventBus is set!
-	if s.eventBus != nil {
-		if err := s.eventBus.PublishEventNewRoundStep(rs); err != nil {
-			s.Logger.Error("failed publishing new round step", "err", err)
-		}
-
-		s.evsw.FireEvent(types.EventNewRoundStep, &s.RoundState)
-	}
 }
 
 func (s *State) receiveRoutine(maxSteps int) {
@@ -581,7 +511,6 @@ func (s *State) receiveRoutine(maxSteps int) {
 			}
 		}
 
-		rs := s.RoundState
 		var mi msgInfo
 
 		select {
@@ -623,7 +552,7 @@ func (s *State) receiveRoutine(maxSteps int) {
 
 			// if the timeout is relevant to the rs
 			// go to the next step
-			s.handleTimeout(ti, rs)
+			s.handleTimeout(ti)
 
 		case <-s.Quit():
 			onExit(s)
@@ -667,7 +596,7 @@ func (s *State) handleMsg(mi msgInfo) {
 	}
 }
 
-func (s *State) handleTimeout(ti TimeoutInfo, rs cstypes.RoundState) {
+func (s *State) handleTimeout(ti TimeoutInfo) {
 	s.Logger.Debug("hotstuff timeout", "timeout", ti.Duration, "height", ti.Height, "round", ti.Round, "step", ti.Step)
 
 	s.mtx.Lock()
@@ -680,7 +609,7 @@ func (s *State) handleTimeout(ti TimeoutInfo, rs cstypes.RoundState) {
 			return
 		}
 		address := s.privValidatorPubKey.Address()
-		if !s.Validators.HasAddress(address) {
+		if !s.state.Validators.HasAddress(address) {
 			return
 		}
 		if s.isProposer(address) {
@@ -727,7 +656,7 @@ func (s *State) handleTxsAvailable() {
 }
 
 func (s *State) isProposer(address []byte) bool {
-	return bytes.Equal(s.Validators.GetProposer().Address, address)
+	return bytes.Equal(s.state.Validators.GetProposer().Address, address)
 }
 
 func (s *State) createProposalBlock(ctx context.Context) (*types.Block, error) {

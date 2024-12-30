@@ -83,7 +83,7 @@ func (s *State) readReplayMessage(msg *cs.TimedWALMessage, newStepSub types.Subs
 		s.handleMsg(m)
 	case TimeoutInfo:
 		s.Logger.Info("Replay: Timeout", "height", m.Height, "round", m.Round, "step", m.Step, "dur", m.Duration)
-		s.handleTimeout(m, s.RoundState)
+		s.handleTimeout(m)
 	default:
 		return fmt.Errorf("replay: Unknown TimedWALMessage type: %v", reflect.TypeOf(msg.Msg))
 	}

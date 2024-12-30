@@ -36,7 +36,6 @@ type HotstuffReactor struct {
 	mtx      cmtsync.RWMutex
 	waitSync bool
 	eventBus *types.EventBus
-	rs       *cstypes.RoundState
 
 	Metrics *cs.Metrics
 }
@@ -45,7 +44,6 @@ func NewReactor(consensusState *State) *HotstuffReactor {
 	conR := &HotstuffReactor{
 		conS:     consensusState,
 		waitSync: false,
-		rs:       consensusState.GetRoundState(),
 		Metrics:  cs.NopMetrics(),
 	}
 	conR.BaseReactor = *p2p.NewBaseReactor("Consensus", conR)
