@@ -647,6 +647,9 @@ func (s *State) handleMsg(mi msgInfo) {
 		fmt.Println(fmt.Sprintf("validator broadcasting %s", VoteEvent))
 		s.evsw.FireEvent(VoteEvent, vote)
 
+	case *hotstufftypes.Vote:
+		fmt.Println("receive msg vote", msg, peerID)
+
 	default:
 		s.Logger.Error("unknown msg type", "type", fmt.Sprintf("%T", msg))
 		return

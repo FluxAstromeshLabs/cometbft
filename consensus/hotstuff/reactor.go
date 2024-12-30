@@ -146,7 +146,7 @@ func (conR *HotstuffReactor) GetChannels() []*p2p.ChannelDescriptor {
 			SendQueueCapacity:   100,
 			RecvBufferCapacity:  100 * 100,
 			RecvMessageCapacity: MaxMsgSize,
-			MessageType:         &cmtcons.Message{},
+			MessageType:         &hotstufftypes.QuorumCert{},
 		},
 	}
 }
@@ -173,16 +173,21 @@ func (conR *HotstuffReactor) Receive(e p2p.Envelope) {
 	case ProposalChannel:
 		switch msg := e.Message.(type) {
 		case *hotstufftypes.Proposal:
-			//set peer state
-			//ps.SetHasProposal(msg)
-
-			// put msg to peerMsgQueue to set our state
 			conR.conS.peerMsgQueue <- msgInfo{msg, e.Src.ID()}
 		}
 	case VoteChannel:
 		switch msg := e.Message.(type) {
 		case *hotstufftypes.Vote:
-			fmt.Println("receive vote msg", msg)
+			switch msg.Type {
+			case hotstufftypes.PrepareVote:
+				conR.conS.peerMsgQueue <- msgInfo{msg, e.Src.ID()}
+			case hotstufftypes.PreCommitVote:
+				conR.conS.peerMsgQueue <- msgInfo{msg, e.Src.ID()}
+			case hotstufftypes.CommitVote:
+				conR.conS.peerMsgQueue <- msgInfo{msg, e.Src.ID()}
+			default:
+				panic("received invalid vote type")
+			}
 		}
 	}
 }
