@@ -125,6 +125,14 @@ func (conR *HotstuffReactor) GetChannels() []*p2p.ChannelDescriptor {
 			MessageType:         &hotstufftypes.Proposal{},
 		},
 		{
+			ID:                  VoteChannel,
+			Priority:            1,
+			SendQueueCapacity:   2,
+			RecvBufferCapacity:  1024,
+			RecvMessageCapacity: MaxMsgSize,
+			MessageType:         &hotstufftypes.Vote{},
+		},
+		{
 			ID:                  BlockChannel,
 			Priority:            10,
 			SendQueueCapacity:   100,
@@ -137,14 +145,6 @@ func (conR *HotstuffReactor) GetChannels() []*p2p.ChannelDescriptor {
 			Priority:            7,
 			SendQueueCapacity:   100,
 			RecvBufferCapacity:  100 * 100,
-			RecvMessageCapacity: MaxMsgSize,
-			MessageType:         &cmtcons.Message{},
-		},
-		{
-			ID:                  VoteChannel,
-			Priority:            1,
-			SendQueueCapacity:   2,
-			RecvBufferCapacity:  1024,
 			RecvMessageCapacity: MaxMsgSize,
 			MessageType:         &cmtcons.Message{},
 		},
@@ -179,6 +179,11 @@ func (conR *HotstuffReactor) Receive(e p2p.Envelope) {
 			// put msg to peerMsgQueue to set our state
 			conR.conS.peerMsgQueue <- msgInfo{msg, e.Src.ID()}
 		}
+	case VoteChannel:
+		switch msg := e.Message.(type) {
+		case *hotstufftypes.Vote:
+			fmt.Println("receive vote msg", msg)
+		}
 	}
 }
 
@@ -199,6 +204,12 @@ func (conR *HotstuffReactor) subscribeToBroadcastEvents() {
 		}); err != nil {
 		conR.Logger.Error("Error adding listener for events", "err", err)
 	}
+	if err := conR.conS.evsw.AddListenerForEvent(subscriber, VoteEvent,
+		func(data cmtevents.EventData) {
+			conR.broadcastVoteMessage(data.(*hotstufftypes.Vote))
+		}); err != nil {
+		conR.Logger.Error("Error adding listener for events", "err", err)
+	}
 }
 
 func (conR *HotstuffReactor) unsubscribeFromBroadcastEvents() {
@@ -210,6 +221,14 @@ func (conR *HotstuffReactor) broadcastProposalMessage(m *hotstufftypes.Proposal)
 	fmt.Println("broadcastProposalMessage", m)
 	conR.Switch.Broadcast(p2p.Envelope{
 		ChannelID: ProposalChannel,
+		Message:   m,
+	}, conR.broadcastFunc)
+}
+
+func (conR *HotstuffReactor) broadcastVoteMessage(m *hotstufftypes.Vote) {
+	fmt.Println("broadcastVoteMessage", m)
+	conR.Switch.Broadcast(p2p.Envelope{
+		ChannelID: VoteChannel,
 		Message:   m,
 	}, conR.broadcastFunc)
 }

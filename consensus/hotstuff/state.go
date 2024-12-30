@@ -8,6 +8,7 @@ import (
 	hotstufftypes "github.com/cometbft/cometbft/consensus/hotstuff/types"
 	"github.com/cometbft/cometbft/libs/fail"
 	cmtos "github.com/cometbft/cometbft/libs/os"
+	"github.com/cosmos/gogoproto/proto"
 	"github.com/go-kit/kit/metrics/discard"
 	"runtime/debug"
 	"time"
@@ -24,6 +25,8 @@ import (
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	sm "github.com/cometbft/cometbft/state"
 	"github.com/cometbft/cometbft/types"
+
+	privval "github.com/cometbft/cometbft/privval"
 )
 
 var msgQueueSize = 1000
@@ -638,18 +641,12 @@ func (s *State) handleMsg(mi msgInfo) {
 
 	switch msg := msg.(type) {
 	case *hotstufftypes.Proposal:
-		// will not cause transition.
-		// once proposal is set, we can receive block parts
-		err = s.setProposal(msg)
-		if err != nil && msg.Round != s.Round {
-			s.Logger.Debug(
-				"received block part from wrong round",
-				"height", s.Height,
-				"cs_round", s.Round,
-				"block_round", msg.Round,
-			)
-			err = nil
-		}
+		fmt.Println("receive msg proposal", msg, peerID)
+		vote, e := s.signVoteProposal(msg)
+		err = e
+		fmt.Println(fmt.Sprintf("validator broadcasting %s", VoteEvent))
+		s.evsw.FireEvent(VoteEvent, vote)
+
 	default:
 		s.Logger.Error("unknown msg type", "type", fmt.Sprintf("%T", msg))
 		return
@@ -685,11 +682,41 @@ func (s *State) handleTimeout(ti TimeoutInfo, rs cstypes.RoundState) {
 		}
 		if s.isProposer(address) {
 			fmt.Println(fmt.Sprintf("proposer %s broadcasting %s", address.String(), ProposalEvent))
-			s.evsw.FireEvent(ProposalEvent, &hotstufftypes.Proposal{Type: hotstufftypes.ProposalType, Height: ti.Height, Round: ti.Round})
+			s.evsw.FireEvent(ProposalEvent, &hotstufftypes.Proposal{Height: ti.Height, Round: ti.Round})
 		}
 
 	}
 }
+
+func (s *State) signVoteProposal(msg *hotstufftypes.Proposal) (*hotstufftypes.Vote, error) {
+	pv, ok := s.privValidator.(*privval.FilePV)
+	if !ok {
+		panic("cannot cast priv validator key to concrete type")
+	}
+
+	addr := s.privValidatorPubKey.Address()
+	vote := &hotstufftypes.Vote{
+		Type:      hotstufftypes.PrepareVote,
+		Address:   addr,
+		Signature: nil,
+	}
+
+	signBytes, err := proto.Marshal(vote)
+	if err != nil {
+		return nil, err
+	}
+
+	sig, err := pv.Key.PrivKey.Sign(signBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	vote.Signature = sig
+
+	return vote, nil
+}
+
+// ---------------------------------------------------------------
 
 func (s *State) handleTxsAvailable() {
 	s.mtx.Lock()

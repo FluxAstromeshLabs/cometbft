@@ -7,9 +7,9 @@ import (
 
 const (
 	ProposalChannel = byte(0x80)
-	BlockChannel    = byte(0x81)
+	VoteChannel     = byte(0x81)
 	QCChannel       = byte(0x82)
-	VoteChannel     = byte(0x83)
+	BlockChannel    = byte(0x83)
 	MaxMsgSize      = 1048576 // 1MB
 )
 
@@ -40,4 +40,5 @@ const (
 
 const (
 	ProposalEvent = "ProposalEvent"
+	VoteEvent     = "VoteEvent"
 )
