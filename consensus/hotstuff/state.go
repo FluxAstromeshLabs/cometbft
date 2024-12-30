@@ -85,7 +85,7 @@ type State struct {
 	// msgs from ourself, or by timeouts
 	peerMsgQueue     chan msgInfo
 	internalMsgQueue chan msgInfo
-	timeoutTicker    cs.TimeoutTicker
+	timeoutTicker    TimeoutTicker
 
 	// information about about added votes and block parts are written on this channel
 	// so statistics can be computed by reactor
@@ -143,7 +143,7 @@ func NewState(
 		txNotifier:       txNotifier,
 		peerMsgQueue:     make(chan msgInfo, msgQueueSize),
 		internalMsgQueue: make(chan msgInfo, msgQueueSize),
-		timeoutTicker:    cs.NewTimeoutTicker(),
+		timeoutTicker:    NewTimeoutTicker(),
 		statsMsgQueue:    make(chan msgInfo, msgQueueSize),
 		done:             make(chan struct{}),
 		doWALCatchup:     true,
@@ -271,7 +271,7 @@ func (s *State) SetPrivValidator(priv types.PrivValidator) {
 
 // SetTimeoutTicker sets the local timer. It may be useful to overwrite for
 // testing.
-func (s *State) SetTimeoutTicker(timeoutTicker cs.TimeoutTicker) {
+func (s *State) SetTimeoutTicker(timeoutTicker TimeoutTicker) {
 	s.mtx.Lock()
 	s.timeoutTicker = timeoutTicker
 	s.mtx.Unlock()
@@ -480,11 +480,11 @@ func (s *State) updateRoundStep(round int32, step cstypes.RoundStepType) {
 func (s *State) scheduleRound0(rs *cstypes.RoundState) {
 	fmt.Println("round 0 scheduled")
 	sleepDuration := time.Millisecond * 300
-	s.scheduleTimeout(sleepDuration, 17, 0, cstypes.RoundStepNewHeight)
+	s.scheduleTimeout(sleepDuration, 17, 0, RoundStepNewView)
 }
 
-func (s *State) scheduleTimeout(duration time.Duration, height int64, round int32, step cstypes.RoundStepType) {
-	s.timeoutTicker.ScheduleTimeout(cs.TimeoutInfo{duration, height, round, step})
+func (s *State) scheduleTimeout(duration time.Duration, height int64, round int32, step RoundStepType) {
+	s.timeoutTicker.ScheduleTimeout(TimeoutInfo{duration, height, round, step})
 }
 
 func (s *State) sendInternalMessage(mi msgInfo) {
@@ -724,7 +724,7 @@ func (s *State) handleMsg(mi msgInfo) {
 	}
 }
 
-func (s *State) handleTimeout(ti cs.TimeoutInfo, rs cstypes.RoundState) {
+func (s *State) handleTimeout(ti TimeoutInfo, rs cstypes.RoundState) {
 	s.Logger.Debug("hotstuff timeout", "timeout", ti.Duration, "height", ti.Height, "round", ti.Round, "step", ti.Step)
 
 	// the timeout will now cause a state transition
@@ -767,7 +767,7 @@ func (s *State) handleTxsAvailable() {
 
 		// +1ms to ensure RoundStepNewRound timeout always happens after RoundStepNewHeight
 		timeoutCommit := s.StartTime.Sub(cmttime.Now()) + 1*time.Millisecond
-		s.scheduleTimeout(timeoutCommit, s.Height, 0, cstypes.RoundStepNewRound)
+		s.scheduleTimeout(timeoutCommit, s.Height, 0, RoundStepNewView)
 
 	case cstypes.RoundStepNewRound: // after timeoutCommit
 		s.enterPropose(s.Height, 0)
@@ -834,8 +834,7 @@ func (s *State) enterNewRound(height int64, round int32) {
 	waitForTxs := s.config.WaitForTxs() && round == 0 && !s.needProofBlock(height)
 	if waitForTxs {
 		if s.config.CreateEmptyBlocksInterval > 0 {
-			s.scheduleTimeout(s.config.CreateEmptyBlocksInterval, height, round,
-				cstypes.RoundStepNewRound)
+			s.scheduleTimeout(s.config.CreateEmptyBlocksInterval, height, round, RoundStepNewView)
 		}
 	} else {
 		s.enterPropose(height, round)

@@ -125,7 +125,7 @@ func (conR *HotstuffReactor) GetChannels() []*p2p.ChannelDescriptor {
 			MessageType:         &hotstufftypes.Proposal{},
 		},
 		{
-			ID:                  BarChannel,
+			ID:                  BlockChannel,
 			Priority:            10,
 			SendQueueCapacity:   100,
 			RecvBufferCapacity:  50 * 4096,
@@ -133,7 +133,7 @@ func (conR *HotstuffReactor) GetChannels() []*p2p.ChannelDescriptor {
 			MessageType:         &cmtcons.Message{},
 		},
 		{
-			ID:                  PingChannel,
+			ID:                  QCChannel,
 			Priority:            7,
 			SendQueueCapacity:   100,
 			RecvBufferCapacity:  100 * 100,
@@ -141,7 +141,7 @@ func (conR *HotstuffReactor) GetChannels() []*p2p.ChannelDescriptor {
 			MessageType:         &cmtcons.Message{},
 		},
 		{
-			ID:                  PongChannel,
+			ID:                  VoteChannel,
 			Priority:            1,
 			SendQueueCapacity:   2,
 			RecvBufferCapacity:  1024,
