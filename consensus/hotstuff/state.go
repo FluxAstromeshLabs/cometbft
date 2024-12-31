@@ -71,8 +71,8 @@ type State struct {
 	evpool evidencePool
 
 	// internal state
-	mtx cmtsync.RWMutex
-	Round
+	mtx           cmtsync.RWMutex
+	roundProgress *RoundProgress
 
 	state sm.State // State until height-1.
 	// privValidator pubkey, memoized for the duration of one block
@@ -216,13 +216,6 @@ func (s *State) GetState() sm.State {
 	return s.state.Copy()
 }
 
-// GetValidators returns a copy of the current validators.
-func (s *State) GetValidators() (int64, []*types.Validator) {
-	s.mtx.RLock()
-	defer s.mtx.RUnlock()
-	return s.state.LastBlockHeight, s.state.Validators.Copy().Validators
-}
-
 // SetPrivValidator sets the private validator account for signing votes. It
 // immediately requests pubkey and caches it.
 func (s *State) SetPrivValidator(priv types.PrivValidator) {
@@ -258,6 +251,7 @@ func (s *State) LoadCommit(height int64) *types.Commit {
 
 func (s *State) OnStart() error {
 	fmt.Println("state OnStart")
+	s.roundProgress = NewRoundProgress(s.state.Validators.Size(), 17, 0)
 
 	// We may set the WAL in testing before calling Start, so only OpenWAL if its
 	// still the nilWAL.
@@ -283,7 +277,7 @@ func (s *State) OnStart() error {
 
 	LOOP:
 		for {
-			err := s.catchupReplay(s.Height)
+			err := s.catchupReplay(s.roundProgress.Height)
 			switch {
 			case err == nil:
 				break LOOP
@@ -428,13 +422,13 @@ func (s *State) SetProposalAndBlock(
 
 func (s *State) updateHeight(height int64) {
 	s.metrics.Height.Set(float64(height))
-	s.Height = height
+	s.roundProgress.Height = height
 }
 
 func (s *State) scheduleRound0() {
 	fmt.Println("round 0 scheduled")
 	sleepDuration := time.Millisecond * 300
-	s.scheduleTimeout(sleepDuration, 17, 0, RoundStepPropose)
+	s.scheduleTimeout(sleepDuration, s.roundProgress.Height, s.roundProgress.Round, RoundStepPropose)
 }
 
 func (s *State) scheduleTimeout(duration time.Duration, height int64, round int32, step RoundStepType) {
@@ -570,6 +564,7 @@ func (s *State) handleMsg(mi msgInfo) {
 
 	switch msg := msg.(type) {
 	case *hotstufftypes.Proposal:
+		// sign and vote
 		fmt.Println("receive msg proposal", msg, peerID)
 		vote, e := s.signVoteProposal(msg)
 		err = e
@@ -578,6 +573,15 @@ func (s *State) handleMsg(mi msgInfo) {
 
 	case *hotstufftypes.Vote:
 		fmt.Println("receive msg vote", msg, peerID)
+		switch msg.Type {
+		case hotstufftypes.PrepareVote:
+			addr := s.privValidatorPubKey.Address()
+			if s.isProposer(addr) {
+				valIdx, _ := s.state.Validators.GetByAddress(msg.Address)
+				s.roundProgress.PrepareQC.SetVote(msg.Signature, valIdx)
+			}
+			fmt.Println("prepare QC", s.roundProgress.PrepareQC)
+		}
 
 	default:
 		s.Logger.Error("unknown msg type", "type", fmt.Sprintf("%T", msg))
@@ -587,8 +591,8 @@ func (s *State) handleMsg(mi msgInfo) {
 	if err != nil {
 		s.Logger.Error(
 			"failed to process message",
-			"height", s.Height,
-			"round", s.Round,
+			"height", s.roundProgress.Height,
+			"round", s.roundProgress.Round,
 			"peer", peerID,
 			"msg_type", fmt.Sprintf("%T", msg),
 			"err", err,
@@ -608,13 +612,22 @@ func (s *State) handleTimeout(ti TimeoutInfo) {
 		if s.privValidatorPubKey == nil {
 			return
 		}
-		address := s.privValidatorPubKey.Address()
-		if !s.state.Validators.HasAddress(address) {
+		addr := s.privValidatorPubKey.Address()
+		if !s.state.Validators.HasAddress(addr) {
 			return
 		}
-		if s.isProposer(address) {
-			fmt.Println(fmt.Sprintf("proposer %s broadcasting %s", address.String(), ProposalEvent))
-			s.evsw.FireEvent(ProposalEvent, &hotstufftypes.Proposal{Height: ti.Height, Round: ti.Round})
+		if s.isProposer(addr) {
+			fmt.Println(fmt.Sprintf("proposer %s broadcasting %s", addr.String(), ProposalEvent))
+			proposal := &hotstufftypes.Proposal{Height: ti.Height, Round: ti.Round}
+			s.evsw.FireEvent(ProposalEvent, proposal)
+
+			// proposer votes
+			vote, err := s.signVoteProposal(proposal)
+			if err != nil {
+				s.Logger.Error("failed to sign vote", "err", err)
+			}
+			proposerIdx, _ := s.state.Validators.GetByAddress(addr)
+			s.roundProgress.PrepareQC.SetVote(vote.Signature, proposerIdx)
 		}
 
 	}
