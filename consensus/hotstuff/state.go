@@ -7,7 +7,6 @@ import (
 	cs "github.com/cometbft/cometbft/consensus"
 	hotstufftypes "github.com/cometbft/cometbft/consensus/hotstuff/types"
 	"github.com/cometbft/cometbft/libs/fail"
-	cmtos "github.com/cometbft/cometbft/libs/os"
 	"github.com/cosmos/gogoproto/proto"
 	"github.com/go-kit/kit/metrics/discard"
 	"runtime/debug"
@@ -95,9 +94,9 @@ type State struct {
 
 	// a Write-Ahead Log ensures we can recover from any kind of crash
 	// and helps us avoid signing conflicting votes
-	wal          cs.WAL
-	replayMode   bool // so we don't log signing errors during replay
-	doWALCatchup bool // determines if we even try to do the catchup
+	//wal          cs.WAL
+	//replayMode   bool // so we don't log signing errors during replay
+	//doWALCatchup bool // determines if we even try to do the catchup
 
 	// for tests where we want to limit the number of transitions the state makes
 	nSteps int
@@ -144,11 +143,11 @@ func NewState(
 		timeoutTicker:    NewTimeoutTicker(),
 		statsMsgQueue:    make(chan msgInfo, msgQueueSize),
 		done:             make(chan struct{}),
-		doWALCatchup:     true,
-		wal:              cs.NilWAL{},
-		evpool:           evpool,
-		evsw:             cmtevents.NewEventSwitch(),
-		metrics:          NopMetrics(),
+		//doWALCatchup:     true,
+		//wal:              cs.NilWAL{},
+		evpool:  evpool,
+		evsw:    cmtevents.NewEventSwitch(),
+		metrics: NopMetrics(),
 	}
 	for _, option := range options {
 		option(s)
@@ -255,11 +254,11 @@ func (s *State) OnStart() error {
 
 	// We may set the WAL in testing before calling Start, so only OpenWAL if its
 	// still the nilWAL.
-	if _, ok := s.wal.(cs.NilWAL); ok {
-		if err := s.loadWalFile(); err != nil {
-			return err
-		}
-	}
+	//if _, ok := s.wal.(cs.NilWAL); ok {
+	//	if err := s.loadWalFile(); err != nil {
+	//		return err
+	//	}
+	//}
 
 	// we need the timeoutRoutine for replay so
 	// we don't block on the tick chan.
@@ -272,55 +271,55 @@ func (s *State) OnStart() error {
 
 	// We may have lost some votes if the process crashed reload from consensus
 	// log to catchup.
-	if s.doWALCatchup {
-		repairAttempted := false
-
-	LOOP:
-		for {
-			err := s.catchupReplay(s.roundProgress.Height)
-			switch {
-			case err == nil:
-				break LOOP
-
-			case !cs.IsDataCorruptionError(err):
-				s.Logger.Error("error on catchup replay; proceeding to start state anyway", "err", err)
-				break LOOP
-
-			case repairAttempted:
-				return err
-			}
-
-			s.Logger.Error("the WAL file is corrupted; attempting repair", "err", err)
-
-			// 1) prep work
-			if err := s.wal.Stop(); err != nil {
-				return err
-			}
-
-			repairAttempted = true
-
-			// 2) backup original WAL file
-			corruptedFile := fmt.Sprintf("%s.CORRUPTED", s.config.WalFile())
-			if err := cmtos.CopyFile(s.config.WalFile(), corruptedFile); err != nil {
-				return err
-			}
-
-			s.Logger.Debug("backed up WAL file", "src", s.config.WalFile(), "dst", corruptedFile)
-
-			//// 3) try to repair (WAL file will be overwritten!)
-			//if err := repairWalFile(corruptedFile, s.config.WalFile()); err != nil {
-			//	s.Logger.Error("the WAL repair failed", "err", err)
-			//	return err
-			//}
-
-			s.Logger.Info("successful WAL repair")
-
-			// reload WAL file
-			if err := s.loadWalFile(); err != nil {
-				return err
-			}
-		}
-	}
+	//if s.doWALCatchup {
+	//	repairAttempted := false
+	//
+	//LOOP:
+	//	for {
+	//		err := s.catchupReplay(s.roundProgress.Height)
+	//		switch {
+	//		case err == nil:
+	//			break LOOP
+	//
+	//		case !cs.IsDataCorruptionError(err):
+	//			s.Logger.Error("error on catchup replay; proceeding to start state anyway", "err", err)
+	//			break LOOP
+	//
+	//		case repairAttempted:
+	//			return err
+	//		}
+	//
+	//		s.Logger.Error("the WAL file is corrupted; attempting repair", "err", err)
+	//
+	//		// 1) prep work
+	//		if err := s.wal.Stop(); err != nil {
+	//			return err
+	//		}
+	//
+	//		repairAttempted = true
+	//
+	//		// 2) backup original WAL file
+	//		corruptedFile := fmt.Sprintf("%s.CORRUPTED", s.config.WalFile())
+	//		if err := cmtos.CopyFile(s.config.WalFile(), corruptedFile); err != nil {
+	//			return err
+	//		}
+	//
+	//		s.Logger.Debug("backed up WAL file", "src", s.config.WalFile(), "dst", corruptedFile)
+	//
+	//		//// 3) try to repair (WAL file will be overwritten!)
+	//		//if err := repairWalFile(corruptedFile, s.config.WalFile()); err != nil {
+	//		//	s.Logger.Error("the WAL repair failed", "err", err)
+	//		//	return err
+	//		//}
+	//
+	//		s.Logger.Info("successful WAL repair")
+	//
+	//		// reload WAL file
+	//		if err := s.loadWalFile(); err != nil {
+	//			return err
+	//		}
+	//	}
+	//}
 
 	if err := s.evsw.Start(); err != nil {
 		return err
@@ -351,16 +350,16 @@ func (s *State) startRoutines(maxSteps int) {
 	go s.receiveRoutine(maxSteps)
 }
 
-func (s *State) loadWalFile() error {
-	wal, err := s.OpenWAL(s.config.WalFile())
-	if err != nil {
-		s.Logger.Error("failed to load state WAL", "err", err)
-		return err
-	}
-
-	s.wal = wal
-	return nil
-}
+//func (s *State) loadWalFile() error {
+//	wal, err := s.OpenWAL(s.config.WalFile())
+//	if err != nil {
+//		s.Logger.Error("failed to load state WAL", "err", err)
+//		return err
+//	}
+//
+//	s.wal = wal
+//	return nil
+//}
 
 // OnStop implements service.Service.
 func (s *State) OnStop() {
@@ -473,11 +472,11 @@ func (s *State) receiveRoutine(maxSteps int) {
 		// priv_val tracks LastSig
 
 		// close wal now that we're done writing to it
-		if err := s.wal.Stop(); err != nil {
-			s.Logger.Error("failed trying to stop WAL", "error", err)
-		}
+		//if err := s.wal.Stop(); err != nil {
+		//	s.Logger.Error("failed trying to stop WAL", "error", err)
+		//}
 
-		s.wal.Wait()
+		//s.wal.Wait()
 		close(s.done)
 	}
 
@@ -512,21 +511,21 @@ func (s *State) receiveRoutine(maxSteps int) {
 			s.handleTxsAvailable()
 
 		case mi = <-s.peerMsgQueue:
-			if err := s.wal.Write(mi); err != nil {
-				s.Logger.Error("failed writing to WAL", "err", err)
-			}
+			//if err := s.wal.Write(mi); err != nil {
+			//	s.Logger.Error("failed writing to WAL", "err", err)
+			//}
 			// handles proposals, block parts, votes
 			// may generate internal events (votes, complete proposals, 2/3 majorities)
 			s.handleMsg(mi)
 
 		case mi = <-s.internalMsgQueue:
-			err := s.wal.WriteSync(mi) // NOTE: fsync
-			if err != nil {
-				panic(fmt.Sprintf(
-					"failed to write %v msg to consensus WAL due to %v; check your file system and restart the node",
-					mi, err,
-				))
-			}
+			//err := s.wal.WriteSync(mi) // NOTE: fsync
+			//if err != nil {
+			//	panic(fmt.Sprintf(
+			//		"failed to write %v msg to consensus WAL due to %v; check your file system and restart the node",
+			//		mi, err,
+			//	))
+			//}
 
 			if _, ok := mi.Msg.(*VoteMessage); ok {
 				// we actually want to simulate failing during
@@ -540,9 +539,9 @@ func (s *State) receiveRoutine(maxSteps int) {
 			s.handleMsg(mi)
 
 		case ti := <-s.timeoutTicker.Chan(): // tockChan:
-			if err := s.wal.Write(ti); err != nil {
-				s.Logger.Error("failed writing to WAL", "err", err)
-			}
+			//if err := s.wal.Write(ti); err != nil {
+			//	s.Logger.Error("failed writing to WAL", "err", err)
+			//}
 
 			// if the timeout is relevant to the rs
 			// go to the next step
