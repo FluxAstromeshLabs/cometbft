@@ -45,7 +45,7 @@ const (
 )
 
 const (
-	ProposalEvent  = "ProposalEvent"
-	PrepareQCEvent = "PrepareQCEvent"
-	VoteEvent      = "VoteEvent"
+	ProposalEvent = "ProposalEvent"
+	QCEvent       = "QCEvent"
+	VoteEvent     = "VoteEvent"
 )

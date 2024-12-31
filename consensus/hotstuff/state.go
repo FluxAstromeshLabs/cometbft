@@ -609,6 +609,9 @@ func (s *State) handleMsg(mi msgInfo) {
 			// set proposal
 			s.roundProgress.Proposal = *msg
 
+		case *hotstufftypes.QuorumCert:
+			fmt.Println("received quorum cert", msg)
+
 		default:
 			s.Logger.Error("unknown msg type", "type", fmt.Sprintf("%T", msg))
 			return
@@ -679,7 +682,7 @@ func (s *State) handleTimeout(ti TimeoutInfo) {
 			if validCert {
 				// broadcast prepare QC to validators
 				fmt.Println("prepare QC is valid, broadcasting to validators")
-				s.evsw.FireEvent(PrepareQCEvent, &s.roundProgress.PrepareQC)
+				s.evsw.FireEvent(QCEvent, &s.roundProgress.PrepareQC)
 			} else {
 				// act as validator and cast gossip for view-change QC
 				fmt.Println("prepare QC didn't have quorum, starting gossip for view-change")
@@ -691,8 +694,10 @@ func (s *State) handleTimeout(ti TimeoutInfo) {
 	if !isLeader {
 		switch ti.Step {
 		case RoundStepValidatorPropose:
+			// TODO: if proposal not received, gossip for view-change QC
 
 		case RoundStepValidatorPrepare:
+			// TODO: if prepare QC not received, gossip for view-change QC
 		}
 	}
 

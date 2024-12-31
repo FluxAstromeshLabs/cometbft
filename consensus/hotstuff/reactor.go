@@ -179,15 +179,21 @@ func (conR *HotstuffReactor) Receive(e p2p.Envelope) {
 			switch msg.Type {
 			case hotstufftypes.PrepareVote:
 				conR.conS.peerMsgQueue <- msgInfo{msg, e.Src.ID()}
-			case hotstufftypes.PreCommitVote:
-				conR.conS.peerMsgQueue <- msgInfo{msg, e.Src.ID()}
-			case hotstufftypes.CommitVote:
-				conR.conS.peerMsgQueue <- msgInfo{msg, e.Src.ID()}
 			default:
 				panic("received invalid vote type")
 			}
 		}
+
+	case QCChannel:
+		switch msg := e.Message.(type) {
+		case *hotstufftypes.QuorumCert:
+			switch msg.Type {
+			case hotstufftypes.PrepareQC:
+				conR.conS.peerMsgQueue <- msgInfo{msg, e.Src.ID()}
+			}
+		}
 	}
+
 }
 
 func (conR *HotstuffReactor) SetEventBus(b *types.EventBus) {
@@ -204,6 +210,12 @@ func (conR *HotstuffReactor) subscribeToBroadcastEvents() {
 	if err := conR.conS.evsw.AddListenerForEvent(subscriber, ProposalEvent,
 		func(data cmtevents.EventData) {
 			conR.broadcastProposalMessage(data.(*hotstufftypes.Proposal))
+		}); err != nil {
+		conR.Logger.Error("Error adding listener for events", "err", err)
+	}
+	if err := conR.conS.evsw.AddListenerForEvent(subscriber, QCEvent,
+		func(data cmtevents.EventData) {
+			conR.broadcastQCMessage(data.(*hotstufftypes.QuorumCert))
 		}); err != nil {
 		conR.Logger.Error("Error adding listener for events", "err", err)
 	}
@@ -224,6 +236,14 @@ func (conR *HotstuffReactor) broadcastProposalMessage(m *hotstufftypes.Proposal)
 	fmt.Println("broadcastProposalMessage", m)
 	conR.Switch.Broadcast(p2p.Envelope{
 		ChannelID: ProposalChannel,
+		Message:   m,
+	}, conR.broadcastFunc)
+}
+
+func (conR *HotstuffReactor) broadcastQCMessage(m *hotstufftypes.QuorumCert) {
+	fmt.Println("broadcastQCMessage", m)
+	conR.Switch.Broadcast(p2p.Envelope{
+		ChannelID: QCChannel,
 		Message:   m,
 	}, conR.broadcastFunc)
 }
