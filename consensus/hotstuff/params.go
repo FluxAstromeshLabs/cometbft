@@ -16,11 +16,17 @@ const (
 type RoundStepType uint8 // These must be numeric, ordered.
 
 const (
-	RoundStepNewView   = RoundStepType(0x01)
-	RoundStepPropose   = RoundStepType(0x02)
-	RoundStepPrepare   = RoundStepType(0x03)
-	RoundStepPreCommit = RoundStepType(0x04)
-	RoundStepCommit    = RoundStepType(0x05)
+	RoundStepViewChange = RoundStepType(0x01)
+
+	RoundStepLeaderPropose   = RoundStepType(0x02)
+	RoundStepLeaderPrepare   = RoundStepType(0x03)
+	RoundStepLeaderPreCommit = RoundStepType(0x04)
+	RoundStepLeaderCommit    = RoundStepType(0x05)
+
+	RoundStepValidatorPropose   = RoundStepType(0x06)
+	RoundStepValidatorPrepare   = RoundStepType(0x07)
+	RoundStepValidatorPreCommit = RoundStepType(0x08)
+	RoundStepValidatorCommit    = RoundStepType(0x09)
 )
 
 type TimeoutInfo struct {
@@ -39,6 +45,7 @@ const (
 )
 
 const (
-	ProposalEvent = "ProposalEvent"
-	VoteEvent     = "VoteEvent"
+	ProposalEvent  = "ProposalEvent"
+	PrepareQCEvent = "PrepareQCEvent"
+	VoteEvent      = "VoteEvent"
 )

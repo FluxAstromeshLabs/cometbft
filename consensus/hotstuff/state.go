@@ -426,8 +426,23 @@ func (s *State) updateHeight(height int64) {
 
 func (s *State) scheduleRound0() {
 	fmt.Println("round 0 scheduled")
-	sleepDuration := time.Millisecond * 300
-	s.scheduleTimeout(sleepDuration, s.roundProgress.Height, s.roundProgress.Round, RoundStepPropose)
+
+	addr := s.privValidatorPubKey.Address()
+	if s.isProposer(addr) {
+		s.scheduleTimeout(
+			time.Millisecond*300,
+			s.roundProgress.Height,
+			s.roundProgress.Round,
+			RoundStepLeaderPropose,
+		)
+	} else {
+		s.scheduleTimeout(
+			time.Millisecond*300,
+			s.roundProgress.Height,
+			s.roundProgress.Round,
+			RoundStepValidatorPropose,
+		)
+	}
 }
 
 func (s *State) scheduleTimeout(duration time.Duration, height int64, round int32, step RoundStepType) {
@@ -560,31 +575,44 @@ func (s *State) handleMsg(mi msgInfo) {
 	var err error
 
 	msg, peerID := mi.Msg, mi.PeerID
+	addr := s.privValidatorPubKey.Address()
+	isLeader := s.isProposer(addr)
 
-	switch msg := msg.(type) {
-	case *hotstufftypes.Proposal:
-		// sign and vote
-		fmt.Println("receive msg proposal", msg, peerID)
-		vote, e := s.signVoteProposal(msg)
-		err = e
-		fmt.Println(fmt.Sprintf("validator broadcasting %s", VoteEvent))
-		s.evsw.FireEvent(VoteEvent, vote)
-
-	case *hotstufftypes.Vote:
-		fmt.Println("receive msg vote", msg, peerID)
-		switch msg.Type {
-		case hotstufftypes.PrepareVote:
-			addr := s.privValidatorPubKey.Address()
-			if s.isProposer(addr) {
-				valIdx, _ := s.state.Validators.GetByAddress(msg.Address)
-				s.roundProgress.PrepareQC.SetVote(msg.Signature, valIdx)
+	// leader msg handlers
+	if isLeader {
+		switch msg := msg.(type) {
+		case *hotstufftypes.Vote:
+			fmt.Println("receive msg vote", msg, peerID)
+			switch msg.Type {
+			case hotstufftypes.PrepareVote:
+				addr := s.privValidatorPubKey.Address()
+				if s.isProposer(addr) {
+					valIdx, _ := s.state.Validators.GetByAddress(msg.Address)
+					s.roundProgress.PrepareQC.SetVote(msg.Signature, valIdx)
+				}
+				fmt.Println("prepare QC", s.roundProgress.PrepareQC)
 			}
-			fmt.Println("prepare QC", s.roundProgress.PrepareQC)
 		}
+	}
 
-	default:
-		s.Logger.Error("unknown msg type", "type", fmt.Sprintf("%T", msg))
-		return
+	// validators msg handlers
+	if !isLeader {
+		switch msg := msg.(type) {
+		case *hotstufftypes.Proposal:
+			// sign and vote
+			fmt.Println("receive msg proposal", msg, peerID)
+			vote, e := s.signVoteProposal(msg)
+			err = e
+			fmt.Println(fmt.Sprintf("validator broadcasting %s", VoteEvent))
+			s.evsw.FireEvent(VoteEvent, vote)
+
+			// set proposal
+			s.roundProgress.Proposal = *msg
+
+		default:
+			s.Logger.Error("unknown msg type", "type", fmt.Sprintf("%T", msg))
+			return
+		}
 	}
 
 	if err != nil {
@@ -605,17 +633,19 @@ func (s *State) handleTimeout(ti TimeoutInfo) {
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
 
-	switch ti.Step {
-	case RoundStepPropose:
-		// only fire event if this is proposer
-		if s.privValidatorPubKey == nil {
-			return
-		}
-		addr := s.privValidatorPubKey.Address()
-		if !s.state.Validators.HasAddress(addr) {
-			return
-		}
-		if s.isProposer(addr) {
+	addr := s.privValidatorPubKey.Address()
+	isLeader := s.isProposer(addr)
+
+	// leader timeout handlers
+	if isLeader {
+		switch ti.Step {
+		case RoundStepLeaderPropose:
+			if s.privValidatorPubKey == nil {
+				return
+			}
+			if !s.state.Validators.HasAddress(addr) {
+				return
+			}
 			fmt.Println(fmt.Sprintf("proposer %s broadcasting %s", addr.String(), ProposalEvent))
 			proposal := &hotstufftypes.Proposal{Height: ti.Height, Round: ti.Round}
 			s.evsw.FireEvent(ProposalEvent, proposal)
@@ -627,9 +657,45 @@ func (s *State) handleTimeout(ti TimeoutInfo) {
 			}
 			proposerIdx, _ := s.state.Validators.GetByAddress(addr)
 			s.roundProgress.PrepareQC.SetVote(vote.Signature, proposerIdx)
-		}
 
+			// start timeout for next step
+			s.scheduleTimeout(
+				time.Millisecond*300,
+				s.roundProgress.Height,
+				s.roundProgress.Round,
+				RoundStepLeaderPrepare,
+			)
+
+		case RoundStepLeaderPrepare:
+			if s.privValidatorPubKey == nil {
+				return
+			}
+			if !s.state.Validators.HasAddress(addr) {
+				return
+			}
+
+			// check if leader collects enough votes
+			validCert := s.roundProgress.PrepareQC.HasQuorum()
+			if validCert {
+				// broadcast prepare QC to validators
+				fmt.Println("prepare QC is valid, broadcasting to validators")
+				s.evsw.FireEvent(PrepareQCEvent, &s.roundProgress.PrepareQC)
+			} else {
+				// act as validator and cast gossip for view-change QC
+				fmt.Println("prepare QC didn't have quorum, starting gossip for view-change")
+			}
+		}
 	}
+
+	// validators timeout handlers
+	if !isLeader {
+		switch ti.Step {
+		case RoundStepValidatorPropose:
+
+		case RoundStepValidatorPrepare:
+		}
+	}
+
 }
 
 func (s *State) signVoteProposal(msg *hotstufftypes.Proposal) (*hotstufftypes.Vote, error) {
