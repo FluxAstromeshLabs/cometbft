@@ -426,9 +426,9 @@ func (s *State) updateHeight(height int64) {
 
 func (s *State) scheduleRound0() {
 	fmt.Println("round 0 scheduled")
-
 	addr := s.privValidatorPubKey.Address()
-	if s.isProposer(addr) {
+	isLeader := s.isProposer(addr)
+	if isLeader {
 		s.scheduleTimeout(
 			time.Millisecond*300,
 			s.roundProgress.Height,
@@ -437,7 +437,7 @@ func (s *State) scheduleRound0() {
 		)
 	} else {
 		s.scheduleTimeout(
-			time.Millisecond*300,
+			time.Millisecond*600,
 			s.roundProgress.Height,
 			s.roundProgress.Round,
 			RoundStepValidatorPropose,
@@ -445,7 +445,7 @@ func (s *State) scheduleRound0() {
 	}
 }
 
-func (s *State) scheduleTimeout(duration time.Duration, height int64, round int32, step RoundStepType) {
+func (s *State) scheduleTimeout(duration time.Duration, height int64, round int64, step RoundStepType) {
 	s.timeoutTicker.ScheduleTimeout(TimeoutInfo{duration, height, round, step})
 }
 
@@ -592,6 +592,11 @@ func (s *State) handleMsg(mi msgInfo) {
 				}
 				fmt.Println("prepare QC", s.roundProgress.PrepareQC)
 			}
+		case *hotstufftypes.QuorumCert:
+			switch msg.Type {
+			case hotstufftypes.ViewChangeQC:
+				fmt.Println("received view-change QC", msg)
+			}
 		}
 	}
 
@@ -610,7 +615,12 @@ func (s *State) handleMsg(mi msgInfo) {
 			s.roundProgress.Proposal = *msg
 
 		case *hotstufftypes.QuorumCert:
-			fmt.Println("received quorum cert", msg)
+			switch msg.Type {
+			case hotstufftypes.PrepareQC:
+				fmt.Println("received prepare QC", msg)
+			case hotstufftypes.ViewChangeQC:
+				fmt.Println("received view-change QC", msg)
+			}
 
 		default:
 			s.Logger.Error("unknown msg type", "type", fmt.Sprintf("%T", msg))
@@ -650,11 +660,12 @@ func (s *State) handleTimeout(ti TimeoutInfo) {
 				return
 			}
 			fmt.Println(fmt.Sprintf("proposer %s broadcasting %s", addr.String(), ProposalEvent))
-			proposal := &hotstufftypes.Proposal{Height: ti.Height, Round: ti.Round}
-			s.evsw.FireEvent(ProposalEvent, proposal)
+			proposal := hotstufftypes.Proposal{Height: ti.Height, Round: ti.Round}
+			s.roundProgress.Proposal = proposal
+			s.evsw.FireEvent(ProposalEvent, &proposal)
 
 			// proposer votes
-			vote, err := s.signVoteProposal(proposal)
+			vote, err := s.signVoteProposal(&proposal)
 			if err != nil {
 				s.Logger.Error("failed to sign vote", "err", err)
 			}
@@ -686,6 +697,7 @@ func (s *State) handleTimeout(ti TimeoutInfo) {
 			} else {
 				// act as validator and cast gossip for view-change QC
 				fmt.Println("prepare QC didn't have quorum, starting gossip for view-change")
+				s.gossipForViewChange()
 			}
 		}
 	}
@@ -694,13 +706,36 @@ func (s *State) handleTimeout(ti TimeoutInfo) {
 	if !isLeader {
 		switch ti.Step {
 		case RoundStepValidatorPropose:
-			// TODO: if proposal not received, gossip for view-change QC
-
-		case RoundStepValidatorPrepare:
-			// TODO: if prepare QC not received, gossip for view-change QC
+			// if not receive proposal in time then gossip for view-change QC
+			if s.roundProgress.Proposal.Height == 0 {
+				s.gossipForViewChange()
+			}
 		}
 	}
+}
 
+func (s *State) gossipForViewChange() {
+	fmt.Println("timed out somewhere, gossiping for view-change QC")
+	// update proposer priority and get new proposer
+	validators := s.state.Validators
+	validators.IncrementProposerPriority(1)
+	propAddress := validators.GetProposer().PubKey.Address()
+	s.state.Validators = validators
+
+	// set our round state
+	qc := hotstufftypes.QuorumCert{
+		Type:       hotstufftypes.ViewChangeQC,
+		Proposer:   propAddress,
+		Height:     s.roundProgress.Height,
+		Round:      s.roundProgress.Round + 1,
+		Votes:      make([]byte, validators.Size()),
+		Signatures: make([][]byte, validators.Size()),
+	}
+	s.roundProgress.Round = qc.Round
+	s.roundProgress.ViewChangeQC = qc
+
+	// broadcast view-change QC to all validators
+	s.evsw.FireEvent(QCEvent, &qc)
 }
 
 func (s *State) signVoteProposal(msg *hotstufftypes.Proposal) (*hotstufftypes.Vote, error) {

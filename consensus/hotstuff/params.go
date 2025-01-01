@@ -32,7 +32,7 @@ const (
 type TimeoutInfo struct {
 	Duration time.Duration `json:"duration"`
 	Height   int64         `json:"height"`
-	Round    int32         `json:"round"`
+	Round    int64         `json:"round"`
 	Step     RoundStepType `json:"step"`
 }
 

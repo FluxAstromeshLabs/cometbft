@@ -5,16 +5,16 @@ import (
 )
 
 type RoundProgress struct {
-	Height      int64
-	Round       int32
-	Proposal    hotstufftypes.Proposal
-	PrepareQC   hotstufftypes.QuorumCert
-	PreCommitQC hotstufftypes.QuorumCert
-	CommitQC    hotstufftypes.QuorumCert
-	TimeoutQC   hotstufftypes.QuorumCert
+	Height       int64
+	Round        int64
+	Proposal     hotstufftypes.Proposal
+	PrepareQC    hotstufftypes.QuorumCert
+	PreCommitQC  hotstufftypes.QuorumCert
+	CommitQC     hotstufftypes.QuorumCert
+	ViewChangeQC hotstufftypes.QuorumCert
 }
 
-func NewRoundProgress(valSize int, height int64, round int32) *RoundProgress {
+func NewRoundProgress(valSize int, height int64, round int64) *RoundProgress {
 	return &RoundProgress{
 		Height:   height,
 		Round:    round,
@@ -31,7 +31,7 @@ func NewRoundProgress(valSize int, height int64, round int32) *RoundProgress {
 			Votes:      make([]byte, valSize),
 			Signatures: make([][]byte, valSize),
 		},
-		TimeoutQC: hotstufftypes.QuorumCert{
+		ViewChangeQC: hotstufftypes.QuorumCert{
 			Votes:      make([]byte, valSize),
 			Signatures: make([][]byte, valSize),
 		},

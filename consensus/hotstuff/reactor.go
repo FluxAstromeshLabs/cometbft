@@ -173,6 +173,7 @@ func (conR *HotstuffReactor) Receive(e p2p.Envelope) {
 		case *hotstufftypes.Proposal:
 			conR.conS.peerMsgQueue <- msgInfo{msg, e.Src.ID()}
 		}
+
 	case VoteChannel:
 		switch msg := e.Message.(type) {
 		case *hotstufftypes.Vote:
@@ -189,6 +190,8 @@ func (conR *HotstuffReactor) Receive(e p2p.Envelope) {
 		case *hotstufftypes.QuorumCert:
 			switch msg.Type {
 			case hotstufftypes.PrepareQC:
+				conR.conS.peerMsgQueue <- msgInfo{msg, e.Src.ID()}
+			case hotstufftypes.ViewChangeQC:
 				conR.conS.peerMsgQueue <- msgInfo{msg, e.Src.ID()}
 			}
 		}
