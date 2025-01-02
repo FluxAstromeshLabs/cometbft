@@ -446,6 +446,7 @@ func (s *State) scheduleRound0() {
 }
 
 func (s *State) scheduleTimeout(duration time.Duration, height int64, round int64, step RoundStepType) {
+	fmt.Println("timeout scheduled", height, round, step)
 	s.timeoutTicker.ScheduleTimeout(TimeoutInfo{duration, height, round, step})
 }
 
@@ -712,6 +713,15 @@ func (s *State) handleTimeout(ti TimeoutInfo) {
 			}
 		}
 	}
+
+	// view-change timeout handler for both leader and validators
+	if ti.Step == RoundStepViewChange {
+		if s.roundProgress.ViewChangeQC.HasQuorum() {
+			fmt.Println("view change QC is valid, start round with new leader")
+		} else {
+			s.gossipForViewChange()
+		}
+	}
 }
 
 func (s *State) gossipForViewChange() {
@@ -722,7 +732,7 @@ func (s *State) gossipForViewChange() {
 	propAddress := validators.GetProposer().PubKey.Address()
 	s.state.Validators = validators
 
-	// set our round state
+	// set our round progress
 	qc := hotstufftypes.QuorumCert{
 		Type:       hotstufftypes.ViewChangeQC,
 		Proposer:   propAddress,
@@ -736,6 +746,9 @@ func (s *State) gossipForViewChange() {
 
 	// broadcast view-change QC to all validators
 	s.evsw.FireEvent(QCEvent, &qc)
+
+	// setup timeout for view-change QC to retry with exponential back off
+	s.scheduleTimeout(time.Millisecond*300, qc.Height, qc.Round, RoundStepViewChange)
 }
 
 func (s *State) signVoteProposal(msg *hotstufftypes.Proposal) (*hotstufftypes.Vote, error) {
