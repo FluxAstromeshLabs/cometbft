@@ -6,11 +6,11 @@ import (
 )
 
 const (
-	ProposalChannel = byte(0x80)
-	VoteChannel     = byte(0x81)
-	QCChannel       = byte(0x82)
-	BlockChannel    = byte(0x83)
-	MaxMsgSize      = 1048576 // 1MB
+	ProposalChannel   = byte(0x80)
+	VoteChannel       = byte(0x81)
+	QCChannel         = byte(0x82)
+	ViewChangeChannel = byte(0x83)
+	MaxMsgSize        = 1048576 // 1MB
 )
 
 type RoundStepType uint8 // These must be numeric, ordered.
@@ -45,7 +45,8 @@ const (
 )
 
 const (
-	ProposalEvent = "ProposalEvent"
-	QCEvent       = "QCEvent"
-	VoteEvent     = "VoteEvent"
+	ProposalEvent   = "ProposalEvent"
+	ViewChangeEvent = "ViewChangeEvent"
+	QCEvent         = "QCEvent"
+	VoteEvent       = "VoteEvent"
 )

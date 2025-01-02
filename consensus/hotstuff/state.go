@@ -19,7 +19,6 @@ import (
 	"github.com/cometbft/cometbft/libs/service"
 	cmtsync "github.com/cometbft/cometbft/libs/sync"
 	"github.com/cometbft/cometbft/p2p"
-	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	sm "github.com/cometbft/cometbft/state"
 	"github.com/cometbft/cometbft/types"
 
@@ -579,6 +578,12 @@ func (s *State) handleMsg(mi msgInfo) {
 	addr := s.privValidatorPubKey.Address()
 	isLeader := s.isProposer(addr)
 
+	// common view change gossip handler
+	switch msg := msg.(type) {
+	case *hotstufftypes.ViewChangeGossip:
+		fmt.Println("received view-change gossip", msg)
+	}
+
 	// leader msg handlers
 	if isLeader {
 		switch msg := msg.(type) {
@@ -607,7 +612,7 @@ func (s *State) handleMsg(mi msgInfo) {
 		case *hotstufftypes.Proposal:
 			// sign and vote
 			fmt.Println("receive msg proposal", msg, peerID)
-			vote, e := s.signVoteProposal(msg)
+			vote, e := s.signVote(msg)
 			err = e
 			fmt.Println(fmt.Sprintf("validator broadcasting %s", VoteEvent))
 			s.evsw.FireEvent(VoteEvent, vote)
@@ -666,7 +671,7 @@ func (s *State) handleTimeout(ti TimeoutInfo) {
 			s.evsw.FireEvent(ProposalEvent, &proposal)
 
 			// proposer votes
-			vote, err := s.signVoteProposal(&proposal)
+			vote, err := s.signVote(&proposal)
 			if err != nil {
 				s.Logger.Error("failed to sign vote", "err", err)
 			}
@@ -698,7 +703,7 @@ func (s *State) handleTimeout(ti TimeoutInfo) {
 			} else {
 				// act as validator and cast gossip for view-change QC
 				fmt.Println("prepare QC didn't have quorum, starting gossip for view-change")
-				s.gossipForViewChange()
+				s.gossipForViewChange(nil)
 			}
 		}
 	}
@@ -709,7 +714,7 @@ func (s *State) handleTimeout(ti TimeoutInfo) {
 		case RoundStepValidatorPropose:
 			// if not receive proposal in time then gossip for view-change QC
 			if s.roundProgress.Proposal.Height == 0 {
-				s.gossipForViewChange()
+				s.gossipForViewChange(nil)
 			}
 		}
 	}
@@ -719,13 +724,13 @@ func (s *State) handleTimeout(ti TimeoutInfo) {
 		if s.roundProgress.ViewChangeQC.HasQuorum() {
 			fmt.Println("view change QC is valid, start round with new leader")
 		} else {
-			s.gossipForViewChange()
+			s.gossipForViewChange(nil)
 		}
 	}
 }
 
-func (s *State) gossipForViewChange() {
-	fmt.Println("timed out somewhere, gossiping for view-change QC")
+func (s *State) gossipForViewChange(highestKnownQC *hotstufftypes.QuorumCert) {
+	fmt.Println("timed out somewhere, gossiping for view change msg")
 	// update proposer priority and get new proposer
 	validators := s.state.Validators
 	validators.IncrementProposerPriority(1)
@@ -733,25 +738,28 @@ func (s *State) gossipForViewChange() {
 	s.state.Validators = validators
 
 	// set our round progress
-	qc := hotstufftypes.QuorumCert{
-		Type:       hotstufftypes.ViewChangeQC,
-		Proposer:   propAddress,
-		Height:     s.roundProgress.Height,
-		Round:      s.roundProgress.Round + 1,
-		Votes:      make([]byte, validators.Size()),
-		Signatures: make([][]byte, validators.Size()),
+	vc := &hotstufftypes.ViewChangeGossip{
+		Height:          s.roundProgress.Height,
+		Round:           s.roundProgress.Round + 1,
+		HighestKnown_QC: highestKnownQC,
+		NextProposer:    propAddress,
+		Vote:            nil,
 	}
-	s.roundProgress.Round = qc.Round
-	s.roundProgress.ViewChangeQC = qc
+	vote, err := s.signVote(vc)
+	if err != nil {
+		panic(err)
+	}
+	vc.Vote = vote
+	s.roundProgress.Round = vc.Round
 
 	// broadcast view-change QC to all validators
-	s.evsw.FireEvent(QCEvent, &qc)
+	s.evsw.FireEvent(ViewChangeEvent, vc)
 
 	// setup timeout for view-change QC to retry with exponential back off
-	s.scheduleTimeout(time.Millisecond*300, qc.Height, qc.Round, RoundStepViewChange)
+	s.scheduleTimeout(time.Millisecond*300, vc.Height, vc.Round, RoundStepViewChange)
 }
 
-func (s *State) signVoteProposal(msg *hotstufftypes.Proposal) (*hotstufftypes.Vote, error) {
+func (s *State) signVote(msg proto.Message) (*hotstufftypes.Vote, error) {
 	pv, ok := s.privValidator.(*privval.FilePV)
 	if !ok {
 		panic("cannot cast priv validator key to concrete type")
@@ -764,7 +772,8 @@ func (s *State) signVoteProposal(msg *hotstufftypes.Proposal) (*hotstufftypes.Vo
 		Signature: nil,
 	}
 
-	signBytes, err := proto.Marshal(vote)
+	var signBytes []byte
+	signBytes, err := proto.Marshal(msg)
 	if err != nil {
 		return nil, err
 	}
@@ -792,15 +801,6 @@ func (s *State) isProposer(address []byte) bool {
 
 func (s *State) createProposalBlock(ctx context.Context) (*types.Block, error) {
 	return &types.Block{}, nil
-}
-
-func (s *State) signVote(
-	msgType cmtproto.SignedMsgType,
-	hash []byte,
-	header types.PartSetHeader,
-	block *types.Block,
-) (*types.Vote, error) {
-	return &types.Vote{}, nil
 }
 
 func (s *State) updatePrivValidatorPubKey() error {

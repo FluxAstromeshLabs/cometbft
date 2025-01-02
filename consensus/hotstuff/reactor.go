@@ -11,7 +11,6 @@ import (
 	"github.com/cometbft/cometbft/libs/log"
 	cmtsync "github.com/cometbft/cometbft/libs/sync"
 	"github.com/cometbft/cometbft/p2p"
-	cmtcons "github.com/cometbft/cometbft/proto/tendermint/consensus"
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	sm "github.com/cometbft/cometbft/state"
 	"github.com/cometbft/cometbft/types"
@@ -131,12 +130,12 @@ func (conR *HotstuffReactor) GetChannels() []*p2p.ChannelDescriptor {
 			MessageType:         &hotstufftypes.Vote{},
 		},
 		{
-			ID:                  BlockChannel,
+			ID:                  ViewChangeChannel,
 			Priority:            10,
 			SendQueueCapacity:   100,
 			RecvBufferCapacity:  50 * 4096,
 			RecvMessageCapacity: MaxMsgSize,
-			MessageType:         &cmtcons.Message{},
+			MessageType:         &hotstufftypes.ViewChangeGossip{},
 		},
 		{
 			ID:                  QCChannel,
@@ -195,6 +194,12 @@ func (conR *HotstuffReactor) Receive(e p2p.Envelope) {
 				conR.conS.peerMsgQueue <- msgInfo{msg, e.Src.ID()}
 			}
 		}
+
+	case ViewChangeChannel:
+		switch msg := e.Message.(type) {
+		case *hotstufftypes.ViewChangeGossip:
+			conR.conS.peerMsgQueue <- msgInfo{msg, e.Src.ID()}
+		}
 	}
 
 }
@@ -228,6 +233,12 @@ func (conR *HotstuffReactor) subscribeToBroadcastEvents() {
 		}); err != nil {
 		conR.Logger.Error("Error adding listener for events", "err", err)
 	}
+	if err := conR.conS.evsw.AddListenerForEvent(subscriber, ViewChangeEvent,
+		func(data cmtevents.EventData) {
+			conR.broadcastViewChangeMessage(data.(*hotstufftypes.ViewChangeGossip))
+		}); err != nil {
+		conR.Logger.Error("Error adding listener for events", "err", err)
+	}
 }
 
 func (conR *HotstuffReactor) unsubscribeFromBroadcastEvents() {
@@ -255,6 +266,14 @@ func (conR *HotstuffReactor) broadcastVoteMessage(m *hotstufftypes.Vote) {
 	fmt.Println("broadcastVoteMessage", m)
 	conR.Switch.Broadcast(p2p.Envelope{
 		ChannelID: VoteChannel,
+		Message:   m,
+	}, conR.broadcastFunc)
+}
+
+func (conR *HotstuffReactor) broadcastViewChangeMessage(m *hotstufftypes.ViewChangeGossip) {
+	fmt.Println("broadcastViewChangeMessage", m)
+	conR.Switch.Broadcast(p2p.Envelope{
+		ChannelID: ViewChangeChannel,
 		Message:   m,
 	}, conR.broadcastFunc)
 }
