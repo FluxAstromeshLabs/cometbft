@@ -10,7 +10,7 @@ func (m *Vote) ValidateBasic() error {
 	return nil
 }
 
-func (m *ViewChangeGossip) ValidateBasic() error {
+func (m *ViewChangeMsg) ValidateBasic() error {
 	return nil
 }
 

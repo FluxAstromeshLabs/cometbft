@@ -135,7 +135,7 @@ func (conR *HotstuffReactor) GetChannels() []*p2p.ChannelDescriptor {
 			SendQueueCapacity:   100,
 			RecvBufferCapacity:  50 * 4096,
 			RecvMessageCapacity: MaxMsgSize,
-			MessageType:         &hotstufftypes.ViewChangeGossip{},
+			MessageType:         &hotstufftypes.ViewChangeMsg{},
 		},
 		{
 			ID:                  QCChannel,
@@ -197,7 +197,7 @@ func (conR *HotstuffReactor) Receive(e p2p.Envelope) {
 
 	case ViewChangeChannel:
 		switch msg := e.Message.(type) {
-		case *hotstufftypes.ViewChangeGossip:
+		case *hotstufftypes.ViewChangeMsg:
 			conR.conS.peerMsgQueue <- msgInfo{msg, e.Src.ID()}
 		}
 	}
@@ -235,7 +235,7 @@ func (conR *HotstuffReactor) subscribeToBroadcastEvents() {
 	}
 	if err := conR.conS.evsw.AddListenerForEvent(subscriber, ViewChangeEvent,
 		func(data cmtevents.EventData) {
-			conR.broadcastViewChangeMessage(data.(*hotstufftypes.ViewChangeGossip))
+			conR.broadcastViewChangeMessage(data.(*hotstufftypes.ViewChangeMsg))
 		}); err != nil {
 		conR.Logger.Error("Error adding listener for events", "err", err)
 	}
@@ -270,7 +270,7 @@ func (conR *HotstuffReactor) broadcastVoteMessage(m *hotstufftypes.Vote) {
 	}, conR.broadcastFunc)
 }
 
-func (conR *HotstuffReactor) broadcastViewChangeMessage(m *hotstufftypes.ViewChangeGossip) {
+func (conR *HotstuffReactor) broadcastViewChangeMessage(m *hotstufftypes.ViewChangeMsg) {
 	fmt.Println("broadcastViewChangeMessage", m)
 	conR.Switch.Broadcast(p2p.Envelope{
 		ChannelID: ViewChangeChannel,

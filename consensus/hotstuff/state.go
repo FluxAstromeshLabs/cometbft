@@ -578,9 +578,9 @@ func (s *State) handleMsg(mi msgInfo) {
 	addr := s.privValidatorPubKey.Address()
 	isLeader := s.isProposer(addr)
 
-	// common view change gossip handler
+	//  view-change gossip handler for all nodes
 	switch msg := msg.(type) {
-	case *hotstufftypes.ViewChangeGossip:
+	case *hotstufftypes.ViewChangeMsg:
 		fmt.Println("received view-change gossip", msg)
 	}
 
@@ -738,7 +738,7 @@ func (s *State) gossipForViewChange(highestKnownQC *hotstufftypes.QuorumCert) {
 	s.state.Validators = validators
 
 	// set our round progress
-	vc := &hotstufftypes.ViewChangeGossip{
+	vc := &hotstufftypes.ViewChangeMsg{
 		Height:          s.roundProgress.Height,
 		Round:           s.roundProgress.Round + 1,
 		HighestKnown_QC: highestKnownQC,
