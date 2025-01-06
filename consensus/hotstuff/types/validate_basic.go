@@ -18,6 +18,11 @@ func (m *QuorumCert) ValidateBasic() error {
 	return nil
 }
 
+func (m *QuorumCert) IsValid() bool {
+	// TODO: validate QC
+	return true
+}
+
 func (m *QuorumCert) SetVote(signature []byte, idx int32) {
 	byteIndex := idx / 8
 	bitIndex := idx % 8

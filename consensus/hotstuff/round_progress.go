@@ -30,8 +30,7 @@ func (p *RoundProgress) getProposal() *hotstufftypes.Proposal {
 }
 
 func (p *RoundProgress) setProposal(proposal *hotstufftypes.Proposal) error {
-	validParentQC := true
-	if !validParentQC {
+	if !proposal.Parent_QC.IsValid() {
 		return fmt.Errorf("parent QC is not valid")
 	}
 	if proposal.Height != p.Height {
@@ -70,6 +69,7 @@ func (p *RoundProgress) setViewChangeMsg(msg *hotstufftypes.ViewChangeMsg) {
 		return
 	}
 	if msg.Round > p.Round && msg.HighestKnownQc.Type >= p.highestKnownQC {
+		p.Round = msg.Round
 		p.highestKnownQC = msg.HighestKnownQc.Type
 		p.qcs[msg.HighestKnownQc.Type] = msg.HighestKnownQc
 	}
