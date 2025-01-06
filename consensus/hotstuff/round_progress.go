@@ -6,24 +6,22 @@ import (
 )
 
 type RoundProgress struct {
-	Height       int64
-	Round        int64
-	proposal     *hotstufftypes.Proposal
-	prepareQC    *hotstufftypes.QuorumCert
-	preCommitQC  *hotstufftypes.QuorumCert
-	commitQC     *hotstufftypes.QuorumCert
-	viewChangeQC *hotstufftypes.QuorumCert
+	Height         int64
+	Round          int64
+	highestKnownQC hotstufftypes.QCType
+
+	proposal      *hotstufftypes.Proposal
+	viewChangeMsg *hotstufftypes.ViewChangeMsg
+
+	qcs map[hotstufftypes.QCType]*hotstufftypes.QuorumCert
 }
 
 func NewRoundProgress(valSize int, height int64, round int64) *RoundProgress {
 	return &RoundProgress{
-		Height:       height,
-		Round:        round,
-		proposal:     nil,
-		prepareQC:    nil,
-		preCommitQC:  nil,
-		commitQC:     nil,
-		viewChangeQC: nil,
+		Height:   height,
+		Round:    round,
+		proposal: nil,
+		qcs:      map[hotstufftypes.QCType]*hotstufftypes.QuorumCert{},
 	}
 }
 
@@ -46,6 +44,10 @@ func (p *RoundProgress) setProposal(proposal *hotstufftypes.Proposal) error {
 	return nil
 }
 
+func (p *RoundProgress) getQC(t hotstufftypes.QCType) *hotstufftypes.QuorumCert {
+	return p.qcs[t]
+}
+
 func (p *RoundProgress) updatePrepareQC(qc *hotstufftypes.QuorumCert) error {
 	if qc.Height != p.Height {
 		return fmt.Errorf("invalid Prepare QC height %d, expected %d", qc.Height, p.Height)
@@ -56,21 +58,19 @@ func (p *RoundProgress) updatePrepareQC(qc *hotstufftypes.QuorumCert) error {
 	if p.proposal == nil {
 		return fmt.Errorf("cannot set prepare QC with empty proposal")
 	}
-	p.prepareQC = qc
+
+	p.highestKnownQC = qc.Type
+	p.qcs[qc.Type] = qc
+
 	return nil
 }
 
-func (p *RoundProgress) getQC(t hotstufftypes.QCType) *hotstufftypes.QuorumCert {
-	switch t {
-	case hotstufftypes.PrepareQC:
-		return p.prepareQC
-	case hotstufftypes.PreCommitQC:
-		return p.preCommitQC
-	case hotstufftypes.CommitQC:
-		return p.commitQC
-	case hotstufftypes.ViewChangeQC:
-		return p.viewChangeQC
-	default:
-		return nil
+func (p *RoundProgress) setViewChangeMsg(msg *hotstufftypes.ViewChangeMsg) {
+	if msg.Height != p.Height {
+		return
+	}
+	if msg.Round > p.Round && msg.HighestKnownQc.Type >= p.highestKnownQC {
+		p.highestKnownQC = msg.HighestKnownQc.Type
+		p.qcs[msg.HighestKnownQc.Type] = msg.HighestKnownQc
 	}
 }

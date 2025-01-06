@@ -393,36 +393,6 @@ func (s *State) OpenWAL(walFile string) (cs.WAL, error) {
 	return wal, nil
 }
 
-func (s *State) AddVote(vote *types.Vote, peerID p2p.ID) (added bool, err error) {
-	// TODO
-	return false, nil
-}
-
-func (s *State) SetProposal(proposal *types.Proposal, peerID p2p.ID) error {
-	// TODO
-	return nil
-}
-
-func (s *State) AddProposalBlockPart(height int64, round int32, part *types.Part, peerID p2p.ID) error {
-	// TODO
-	return nil
-}
-
-func (s *State) SetProposalAndBlock(
-	proposal *types.Proposal,
-	block *types.Block, //nolint:revive
-	parts *types.PartSet,
-	peerID p2p.ID,
-) error {
-	// TODO
-	return nil
-}
-
-func (s *State) updateHeight(height int64) {
-	s.metrics.Height.Set(float64(height))
-	s.roundProgress.Height = height
-}
-
 func (s *State) scheduleRound0() {
 	fmt.Println("round 0 scheduled")
 	addr := s.privValidatorPubKey.Address()
@@ -748,7 +718,7 @@ func (s *State) handleTimeout(ti TimeoutInfo) {
 	}
 }
 
-func (s *State) gossipForViewChange(highestKnownQC *hotstufftypes.QuorumCert) {
+func (s *State) gossipForViewChange(highestKnownQc *hotstufftypes.QuorumCert) {
 	fmt.Println("timed out somewhere, gossiping for view change msg")
 	// update proposer priority and get new proposer
 	validators := s.state.Validators
@@ -758,11 +728,11 @@ func (s *State) gossipForViewChange(highestKnownQC *hotstufftypes.QuorumCert) {
 
 	// set our round progress
 	vc := &hotstufftypes.ViewChangeMsg{
-		Height:          s.roundProgress.Height,
-		Round:           s.roundProgress.Round + 1,
-		HighestKnown_QC: highestKnownQC,
-		NextProposer:    propAddress,
-		Vote:            nil,
+		Height:         s.roundProgress.Height,
+		Round:          s.roundProgress.Round + 1,
+		HighestKnownQc: highestKnownQc,
+		NextProposer:   propAddress,
+		Vote:           nil,
 	}
 	vote, err := s.signVote(vc)
 	if err != nil {
